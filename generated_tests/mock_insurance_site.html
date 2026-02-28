@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Insurance Policy Management</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            border-bottom: 2px solid #007bff;
+            padding-bottom: 10px;
+        }
+        .nav-links {
+            margin-bottom: 20px;
+        }
+        .nav-links a {
+            color: #007bff;
+            text-decoration: none;
+            margin-right: 15px;
+        }
+        .nav-links a:hover {
+            text-decoration: underline;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #555;
+        }
+        input, textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        input:focus, textarea:focus {
+            outline: none;
+            border-color: #007bff;
+            box-shadow: 0 0 5px rgba(0,123,255,0.3);
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        .btn-secondary {
+            background-color: #6c757d;
+            margin-right: 10px;
+        }
+        .btn-secondary:hover {
+            background-color: #545b62;
+        }
+        .alert {
+            padding: 12px;
+            border-radius: 4px;
+            margin-top: 15px;
+            display: none;
+        }
+        .alert-error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .alert-success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .vehicle-details-loaded {
+            display: none;
+            padding: 15px;
+            background-color: #e7f3ff;
+            border-radius: 4px;
+            margin-top: 10px;
+        }
+        .vehicle-details-loaded.visible {
+            display: block;
+        }
+        .vehicle-info {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .fieldset {
+            border: 1px solid #ddd;
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+        }
+        .fieldset legend {
+            padding: 0 10px;
+            font-weight: bold;
+            color: #333;
+        }
+        .action-buttons {
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid #ddd;
+        }
+        #lookupStatus {
+            margin-top: 10px;
+            font-style: italic;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Insurance Policy Management</h1>
+        
+        <div class="nav-links">
+            <a href="#" id="updatePolicyLink">Update Policy Details</a>
+            <a href="#">View Policy</a>
+            <a href="#">Claims</a>
+            <a href="#">Documents</a>
+        </div>
+
+        <!-- Main Policy Page (initially shown) -->
+        <div id="mainPolicyPage">
+            <div class="fieldset">
+                <legend>Policy Overview</legend>
+                <p><strong>Policy Number:</strong> POL-12345</p>
+                <p><strong>Status:</strong> Active</p>
+                <p><strong>Current Vehicle:</strong> 2020 Honda CR-V</p>
+            </div>
+
+            <div class="action-buttons">
+                <button id="addOrChangeVehicleBtn">Add or Change Vehicle</button>
+                <button class="btn-secondary">Add Driver</button>
+                <button class="btn-secondary">View Coverage</button>
+            </div>
+        </div>
+
+        <!-- Vehicle Update Form (hidden initially) -->
+        <div id="vehicleUpdateForm" style="display: none;">
+            <h2>Change Vehicle Details</h2>
+            
+            <div class="form-group">
+                <label for="registration">Registration Number</label>
+                <input type="text" id="registration" placeholder="e.g. AB12 CDE">
+                <div id="lookupStatus"></div>
+                <div class="vehicle-details-loaded" id="vehicleDetails">
+                    <h4>Vehicle Details Loaded</h4>
+                    <div class="vehicle-info">
+                        <div><strong>Make:</strong> <span id="vehicleMake">Honda</span></div>
+                        <div><strong>Model:</strong> <span id="vehicleModel">CR-V</span></div>
+                        <div><strong>Year:</strong> <span id="vehicleYear">2020</span></div>
+                        <div><strong>Color:</strong> <span id="vehicleColor">Silver</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="ownerName">Policy Owner Name</label>
+                <input type="text" id="ownerName" placeholder="Enter owner full name">
+            </div>
+
+            <div class="form-group">
+                <label for="keeperName">Registered Keeper Name</label>
+                <input type="text" id="keeperName" placeholder="Enter keeper full name">
+            </div>
+
+            <div class="form-group">
+                <label for="driverName">Main Driver Name</label>
+                <input type="text" id="driverName" placeholder="Enter main driver full name">
+            </div>
+
+            <div class="form-group">
+                <label for="vehicleAge">Vehicle Age (Years)</label>
+                <input type="number" id="vehicleAge" placeholder="e.g. 5" min="0" max="50">
+            </div>
+
+            <div class="form-group">
+                <label for="vehicleSpec">Vehicle Specification</label>
+                <textarea id="vehicleSpec" rows="3" placeholder="Describe any changes (e.g., Full Leather, Sunroof, 2.0L Diesel)">Factory Default</textarea>
+            </div>
+
+            <div class="action-buttons">
+                <button id="updateVehicleBtn">Update Vehicle</button>
+                <button class="btn-secondary" id="cancelBtn">Cancel</button>
+            </div>
+
+            <div class="alert alert-error" id="errorMessage" role="alert"></div>
+            <div class="alert alert-success" id="successMessage">Policy updated successfully</div>
+        </div>
+    </div>
+
+    <script>
+        // DOM Elements
+        const updatePolicyLink = document.getElementById('updatePolicyLink');
+        const mainPolicyPage = document.getElementById('mainPolicyPage');
+        const vehicleUpdateForm = document.getElementById('vehicleUpdateForm');
+        const addOrChangeVehicleBtn = document.getElementById('addOrChangeVehicleBtn');
+        const cancelBtn = document.getElementById('cancelBtn');
+        const updateVehicleBtn = document.getElementById('updateVehicleBtn');
+        const registrationInput = document.getElementById('registration');
+        const lookupStatus = document.getElementById('lookupStatus');
+        const vehicleDetails = document.getElementById('vehicleDetails');
+        const errorMessage = document.getElementById('errorMessage');
+        const successMessage = document.getElementById('successMessage');
+        
+        // Form fields
+        const ownerInput = document.getElementById('ownerName');
+        const keeperInput = document.getElementById('keeperName');
+        const driverInput = document.getElementById('driverName');
+        const ageInput = document.getElementById('vehicleAge');
+        const specInput = document.getElementById('vehicleSpec');
+
+        // Toggle between main page and vehicle update form
+        updatePolicyLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            showVehicleUpdateForm();
+        });
+
+        addOrChangeVehicleBtn.addEventListener('click', () => {
+            showVehicleUpdateForm();
+        });
+
+        cancelBtn.addEventListener('click', () => {
+            hideVehicleUpdateForm();
+        });
+
+        function showVehicleUpdateForm() {
+            mainPolicyPage.style.display = 'none';
+            vehicleUpdateForm.style.display = 'block';
+            resetForm();
+        }
+
+        function hideVehicleUpdateForm() {
+            vehicleUpdateForm.style.display = 'none';
+            mainPolicyPage.style.display = 'block';
+        }
+
+        function resetForm() {
+            document.querySelector('#vehicleUpdateForm form')?.reset();
+            registrationInput.value = '';
+            ownerInput.value = '';
+            keeperInput.value = '';
+            driverInput.value = '';
+            ageInput.value = '';
+            specInput.value = 'Factory Default';
+            lookupStatus.textContent = '';
+            vehicleDetails.classList.remove('visible');
+            errorMessage.style.display = 'none';
+            successMessage.style.display = 'none';
+        }
+
+        // Vehicle lookup by registration
+        registrationInput.addEventListener('blur', function() {
+            const reg = this.value.trim().toUpperCase();
+            
+            if (reg.length < 3) {
+                lookupStatus.textContent = 'Please enter a valid registration number';
+                return;
+            }
+
+            lookupStatus.textContent = 'Looking up vehicle...';
+
+            // Simulate API call with setTimeout
+            setTimeout(() => {
+                // Mock database of registrations
+                const mockData = {
+                    'AB12CDE': { make: 'Honda', model: 'CR-V', year: '2020', color: 'Silver' },
+                    'XYZ789': { make: 'Ford', model: 'Focus', year: '2019', color: 'Blue' },
+                    'DEF456': { make: 'Toyota', model: 'Yaris', year: '2021', color: 'White' }
+                };
+
+                if (mockData[reg]) {
+                    const data = mockData[reg];
+                    vehicleDetails.classList.add('visible');
+                    document.getElementById('vehicleMake').textContent = data.make;
+                    document.getElementById('vehicleModel').textContent = data.model;
+                    document.getElementById('vehicleYear').textContent = data.year;
+                    document.getElementById('vehicleColor').textContent = data.color;
+                    lookupStatus.textContent = '';
+                    
+                    // Calculate and set age based on current year
+                    const currentYear = new Date().getFullYear();
+                    const age = currentYear - parseInt(data.year);
+                    ageInput.value = age.toString();
+                } else {
+                    vehicleDetails.classList.remove('visible');
+                    lookupStatus.textContent = 'Registration not found. Please enter manually.';
+                }
+            }, 500);
+        });
+
+        // Form submission with validation
+        updateVehicleBtn.addEventListener('click', () => {
+            const reg = registrationInput.value.trim();
+            const owner = ownerInput.value.trim();
+            const keeper = keeperInput.value.trim();
+            const driver = driverInput.value.trim();
+            const age = ageInput.value.value;
+            const spec = specInput.value.trim();
+
+            // Reset error display
+            errorMessage.style.display = 'none';
+
+            // Validation
+            if (!reg) {
+                showError('Registration number is required');
+                return;
+            }
+
+            if (!reg.match(/^[A-Z0-9]{3,7}$/)) {
+                showError('Please enter a valid registration (e.g., AB12 CDE)');
+                return;
+            }
+
+            if (!owner) {
+                showError('Please enter the policy owner name');
+                return;
+            }
+
+            if (!keeper) {
+                showError('Please enter the registered keeper name');
+                return;
+            }
+
+            if (!driver) {
+                showError('Please enter the main driver name');
+                return;
+            }
+
+            if (!age || isNaN(age) || age <= 0) {
+                showError('Please enter a valid vehicle age');
+                return;
+            }
+
+            if (age < 0 || age > 100) {
+                showError('Age must be a positive number');
+                return;
+            }
+
+            if (!spec) {
+                showError('Please enter vehicle specifications');
+                return;
+            }
+
+            // Simulate successful update
+            simulateUpdate();
+        });
+
+        function showError(message) {
+            errorMessage.textContent = message;
+            errorMessage.style.display = 'block';
+            successMessage.style.display = 'none';
+        }
+
+        function simulateUpdate() {
+            updateVehicleBtn.disabled = true;
+            updateVehicleBtn.textContent = 'Updating...';
+
+            // Simulate network request
+            setTimeout(() => {
+                errorMessage.style.display = 'none';
+                successMessage.style.display = 'block';
+                updateVehicleBtn.disabled = false;
+                updateVehicleBtn.textContent = 'Update Vehicle';
+            }, 1000);
+        }
+
+        // Demo data for testing
+        console.log('Available test registrations: AB12CDE, XYZ789, DEF456');
+    </script>
+</body>
+</html>
