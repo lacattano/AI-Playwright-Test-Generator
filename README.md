@@ -2,6 +2,17 @@
 
 An AI-powered tool that generates Playwright Python test scripts using local LLM models via Ollama.
 
+## Status
+
+| Metric | Status |
+|--------|--------|
+| CI/CD Pipeline | [![CI/CD Pipeline](https://github.com/lacattano/vs-projects/actions/workflows/ci.yml/badge.svg)](https://github.com/lacattano/vs-projects/actions) |
+| Python 3.13 | ![Python 3.13](https://img.shields.io/badge/python-3.13+-blue.svg) |
+| License | ![License](https://img.shields.io/badge/license-MIT-green.svg) |
+| Test Coverage | [![Coverage Status](coverage.svg)](coverage.html) |
+
+---
+
 ## What This Shows to Employers
 
 This project demonstrates **modern QA automation and AI integration skills**:

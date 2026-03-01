@@ -1,9 +1,10 @@
 .git
 __pycache__
 *.pyc
-.env
-*.pyc
+*.pyo
 *.so
+.env
+.env.*.local
 .pytest_cache
 .coverage
 htmlcov
@@ -12,8 +13,6 @@ build
 .eggs
 *.egg-info
 node_modules
-.env.local
 .DS_Store
-*.md
 .vscode
 .idea
