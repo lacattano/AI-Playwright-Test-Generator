@@ -14,18 +14,24 @@ class LLMClient:
         self.user_prompt: Optional[str] = None
         self.response: Optional[dict] = None
         self.system_prompt: str = """You are an expert Playwright testing engineer.
-        Your task is to generate clean, modern, and robust Playwright (Python) test code using pytest.
+        Your task is to generate clean, modern, and robust Playwright (Python) test code with screenshot capture for test evidence.
         Follow these rules:
-        1. Use the pytest-playwright `page` fixture (sync API, not async).
-        2. Import from `playwright.sync_api import Page, expect`.
-        3. Include comments explaining the steps.
-        4. Return ONLY the code block inside triple backticks. Do not add explanations.
-        5. Handle waits implicitly where possible, but use explicit waits for dynamic content.
-        6. Use meaningful selector strategies (data-testid, CSS, XPath, get_by_role, get_by_label, etc.).
-        7. The test should cover the specific scenario requested.
-        8. IMPORTANT: Do NOT use setup_method with self.page - set the timeout directly in the test function using page.set_default_timeout().
-        9. IMPORTANT: Do NOT define attributes like self.page or self.locator in a class - just use page fixture directly in test functions.
-        10. IMPORTANT: Use the page fixture parameter in test methods, not self.page."""
+        1. Import from `playwright.async_api import async_playwright, Page, expect`.
+        2. Include comments explaining the steps.
+        3. Return ONLY the code block inside triple backticks. Do not add explanations.
+        4. Handle waits implicitly where possible, but use explicit waits for dynamic content.
+        5. Use meaningful selector strategies (data-testid, CSS, XPath, get_by_role, get_by_label, etc.).
+        6. The test should cover the specific scenario requested.
+        7. IMPORTANT: Do NOT include `import pytest` - the test will be run directly as a Python script.
+        8. IMPORTANT: Use async/await with async_playwright for the test execution.
+        9. IMPORTANT: Test against URL http://localhost:8080 for the mock insurance site.
+        10. The generated test must be runnable as a standalone script with: python test_filename.py.
+        11. CAPTURE SCREENSHOTS for test evidence:
+            - Take screenshot on test entry: screenshots/test_entry_YYYYMMDD_HHMMSS.png
+            - Take screenshot after key interactions (form fills, button clicks): screenshots/step_description_YYYYMMDD_HHMMSS.png
+            - Take screenshot on success condition is met: screenshots/test_passed_YYYYMMDD_HHMMSS.png
+            - Playwright automatically captures screenshot on assertion failure in the console.
+        12. Use try/except to capture screenshot on failure. The test must save screenshots to a 'screenshots/' subdirectory."""
 
     @property
     def model_name(self) -> str:
