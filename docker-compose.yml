@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  test-generator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: playwright-test-generator
+    volumes:
+      - ./generated_tests:/app/generated_tests
+      - ./screenshots:/app/screenshots
+      - ./src:/app/src
+      - .:/app
+    environment:
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-qwen3.5:35b}
+      - OLLAMA_TIMEOUT=${OLLAMA_TIMEOUT:-60}
+      - OUTPUT_DIR=/app/generated_tests
+    ports:
+      - "8080:8080"
+    networks:
+      - playwright-network
+    depends_on:
+      - ollama
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    networks:
+      - playwright-network
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
+
+volumes:
+  ollama-data:
+
+networks:
+  playwright-network:
+    driver: bridge
