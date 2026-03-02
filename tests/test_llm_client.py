@@ -211,7 +211,7 @@ class TestErrorHandling:
             mock_post.side_effect = Exception("Connection refused")
             client = LLMClient()
             result = client.generate_test("test")
-            assert result == "" # Matches your current try/except logic
+            assert result == ""  # Matches your current try/except logic
 
 
 if __name__ == "__main__":
