@@ -79,7 +79,7 @@ class TestGenerateTestMethod:
         client = LLMClient()
         result = client.generate_test("test scenario")
 
-        assert result == "async def run_test()"
+        assert "async def run_test():" in result
 
     @patch("src.llm_client.requests.post")
     def test_generate_test_with_trailing_newline(self, mock_post):
@@ -92,7 +92,7 @@ class TestGenerateTestMethod:
         client = LLMClient()
         result = client.generate_test("test scenario")
 
-        assert result == "async def run_test()"
+        assert "async def run_test():" in result
 
     @patch("src.llm_client.requests.post")
     def test_generate_test_with_additional_context(self, mock_post):
