@@ -3,11 +3,12 @@
 Tests verify directory handling, file naming, and error scenarios.
 """
 
-import pytest
 import os
 import tempfile
-from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
+import pytest
+
 from src.test_generator import TestGenerator
 
 
@@ -138,7 +139,7 @@ def test_example(page: Page):
             result = generator.generate_and_save("test request")
 
             assert os.path.exists(result)
-            with open(result, "r") as f:
+            with open(result) as f:
                 content = f.read()
                 assert "from playwright" in content
 
@@ -177,7 +178,7 @@ def test_example(page: Page):
             generator.client.generate_test = MagicMock(return_value=mock_code)
             long_request = "a" * 100
             result = generator.generate_and_save(long_request)
-            
+
             # Filename should be reasonable length
             assert len(os.path.basename(result)) < 100
 
@@ -193,22 +194,22 @@ def test_example(page: Page):
             generator.client = MagicMock()
             generator.client.generate_test = MagicMock(return_value=mock_code)
             result = generator.generate_and_save("test!@#$%request")
-            
+
             # Should not contain special chars that would break filenames
             special_chars = "!@#$%^&*(){}[]<>?"
             for char in special_chars:
                 assert char not in os.path.basename(result)
 
-    @patch('src.test_generator.LLMClient')
+    @patch("src.test_generator.LLMClient")
     def test_api_error_handling(self, mock_client_class):
         """Verify API errors are properly raised."""
         with tempfile.TemporaryDirectory() as tmpdir:
             mock_client = MagicMock()
             mock_client.generate_test = MagicMock(side_effect=Exception("API error"))
             mock_client_class.return_value = mock_client
-            
+
             generator = TestGenerator(output_dir=tmpdir)
-            
+
             with pytest.raises(Exception):
                 generator.generate_and_save("test request")
 
@@ -233,9 +234,11 @@ class TestFileNameGeneration:
             generator.client = MagicMock()
             generator.client.generate_test = MagicMock(return_value="code")
             result = generator.generate_and_save("test request!@#")
-            
+
             filename = os.path.basename(result)
-            allowed_chars = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.")
+            allowed_chars = set(
+                "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_."
+            )
             for char in filename:
                 assert char in allowed_chars or char == " "
 
@@ -263,9 +266,9 @@ class TestOutputDirectoryPermissions:
         with tempfile.TemporaryDirectory() as tmpdir:
             sub_dir = os.path.join(tmpdir, "tests_output")
             assert not os.path.exists(sub_dir)
-            
+
             generator = TestGenerator(output_dir=sub_dir)
-            
+
             assert os.path.exists(sub_dir)
             assert generator.output_dir == sub_dir
 

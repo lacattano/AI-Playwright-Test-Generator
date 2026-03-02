@@ -3,10 +3,11 @@
 Tests verify prompt formatting, response parsing, and error handling.
 """
 
+from unittest.mock import MagicMock, patch
+
 import pytest
+
 from src.llm_client import LLMClient
-import os
-from unittest.mock import patch, MagicMock
 
 
 class TestLLMClientInitialization:
@@ -51,7 +52,7 @@ class TestGenerateTestMethod:
             client.generate_test("")
         assert "empty" in str(exc_info.value).lower()
 
-    @patch('src.llm_client.requests.post')
+    @patch("src.llm_client.requests.post")
     def test_generate_test_calls_api_correctly(self, mock_post):
         """Verify API call is made with correct payload."""
         mock_response = MagicMock()
@@ -60,14 +61,14 @@ class TestGenerateTestMethod:
         mock_post.return_value = mock_response
 
         client = LLMClient()
-        result = client.generate_test("test scenario")
+        _ = client.generate_test("test scenario")
 
         assert mock_post.called
         call_args = mock_post.call_args
-        assert call_args[1]['json']['model'] == "qwen3.5:35b"
-        assert "test scenario" in call_args[1]['json']['prompt']
+        assert call_args[1]["json"]["model"] == "qwen3.5:35b"
+        assert "test scenario" in call_args[1]["json"]["prompt"]
 
-    @patch('src.llm_client.requests.post')
+    @patch("src.llm_client.requests.post")
     def test_generate_test_returns_extracted_code(self, mock_post):
         """Verify extracted code is returned."""
         mock_response = MagicMock()
@@ -80,7 +81,7 @@ class TestGenerateTestMethod:
 
         assert result == "test code"
 
-    @patch('src.llm_client.requests.post')
+    @patch("src.llm_client.requests.post")
     def test_generate_test_with_additional_context(self, mock_post):
         """Verify additional context is included in prompt."""
         mock_response = MagicMock()
@@ -89,15 +90,14 @@ class TestGenerateTestMethod:
         mock_post.return_value = mock_response
 
         client = LLMClient()
-        result = client.generate_test(
-            "test scenario",
-            additional_context={"selector": "#my-button"}
+        client.generate_test(
+            "test scenario", additional_context={"selector": "#my-button"}
         )
 
         call_args = mock_post.call_args
-        assert "#my-button" in call_args[1]['json']['prompt']
+        assert "#my-button" in call_args[1]["json"]["prompt"]
 
-    @patch('src.llm_client.requests.post')
+    @patch("src.llm_client.requests.post")
     def test_connection_error_handling(self, mock_post):
         """Verify ConnectionError is raised for connection failures."""
         mock_post.side_effect = Exception("Connection failed")
@@ -179,7 +179,10 @@ class TestSystemPromptContent:
     def test_system_prompt_uses_async_api(self):
         """Verify system prompt specifies async API usage."""
         client = LLMClient()
-        assert "async" in client.system_prompt.lower() or "async_playwright" in client.system_prompt.lower()
+        assert (
+            "async" in client.system_prompt.lower()
+            or "async_playwright" in client.system_prompt.lower()
+        )
 
     def test_system_prompt_omits_pytest_import(self):
         """Verify system prompt explicitly excludes pytest."""
@@ -191,7 +194,7 @@ class TestSystemPromptContent:
 class TestErrorHandling:
     """Tests for error handling scenarios."""
 
-    @patch('src.llm_client.requests.post')
+    @patch("src.llm_client.requests.post")
     def test_connection_error_message(self, mock_post):
         """Verify helpful error message for connection failures."""
         mock_post.side_effect = Exception("Connection refused")
@@ -199,7 +202,7 @@ class TestErrorHandling:
         client = LLMClient()
         try:
             client.generate_test("test")
-            assert False, "Should have raised an exception"
+            pytest.fail("Should have raised an exception")
         except Exception as e:
             assert "Connection" in str(e) or "ollama" in str(e).lower()
 
@@ -210,8 +213,9 @@ class TestSlugify:
     def slugify_text(self, text: str, max_length: int = 100) -> str:
         """Helper to test slugify logic inline."""
         import re
-        slug = re.sub(r'[^a-zA-Z0-9]', '_', text)
-        slug = slug.strip('_')
+
+        slug = re.sub(r"[^a-zA-Z0-9]", "_", text)
+        slug = slug.strip("_")
         slug = slug.lower()
         if len(slug) > max_length:
             slug = slug[:max_length]

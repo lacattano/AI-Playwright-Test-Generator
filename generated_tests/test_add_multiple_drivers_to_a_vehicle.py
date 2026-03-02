@@ -5,6 +5,7 @@
 
 from playwright.sync_api import Page, expect
 
+
 class VehicleDriversPage:
     def __init__(self, page: Page):
         self.page = page
@@ -39,34 +40,40 @@ class VehicleDriversPage:
         self.save_vehicle_button.click()
 
     def expect_network_request(self, is_success: bool = True):
-        self.page.route("https://example.com/api/vehicles", lambda route: (
-            route.fulfill(status=200, body='{"status": "success"}') if is_success else route.fulfill(status=500, body='{"error": "server failure"}')
-        ))
+        self.page.route(
+            "https://example.com/api/vehicles",
+            lambda route: (
+                route.fulfill(status=200, body='{"status": "success"}')
+                if is_success
+                else route.fulfill(status=500, body='{"error": "server failure"}')
+            ),
+        )
+
 
 def test_add_multiple_drivers_to_a_vehicle(page: Page):
     page.goto("http://localhost:8080")
     page.set_default_timeout(30000)
-    
+
     page_obj = VehicleDriversPage(page)
-    
+
     # Setup for Happy Path
     page_obj.navigate_to_page()
-    
+
     # Mock successful API call for happy path
-    page.route("https://example.com/api/vehicles", lambda route: route.fulfill(
-        status=200, 
-        body='{"status": "success"}'
-    ))
+    page.route(
+        "https://example.com/api/vehicles",
+        lambda route: route.fulfill(status=200, body='{"status": "success"}'),
+    )
 
     drivers_to_add = [
         {"name": "John Doe", "license": "123456"},
-        {"name": "Jane Smith", "license": "789012"}
+        {"name": "Jane Smith", "license": "789012"},
     ]
-    
+
     # Happy Path: Add multiple valid drivers
     page_obj.add_multiple_drivers(drivers_to_add)
     page_obj.attempt_save_vehicle()
-    
+
     expect(page_obj.success_message).to_be_visible()
     expect(page_obj.driver_list).to_have_text("John Doe (123456)")
     expect(page_obj.driver_list).to_have_text("Jane Smith (789012)")
@@ -76,7 +83,7 @@ def test_add_multiple_drivers_to_a_vehicle(page: Page):
     page_obj.navigate_to_page()
     page_obj.clear_fields()
     page_obj.attempt_save_vehicle()
-    
+
     expect(page_obj.error_message).to_be_visible()
     expect(page_obj.save_vehicle_button).to_be_disabled()
 
@@ -85,21 +92,21 @@ def test_add_multiple_drivers_to_a_vehicle(page: Page):
     page_obj.driver_name_input.fill("123 Invalid")
     page_obj.license_input.fill("9999")
     page_obj.attempt_save_vehicle()
-    
+
     expect(page_obj.driver_name_input).to_have_value("123 Invalid")
     expect(page_obj.error_message).to_be_visible()
 
     # Edge Case: Network Errors
     page_obj.navigate_to_page()
-    page.route("https://example.com/api/vehicles", lambda route: route.fulfill(
-        status=500, 
-        body='{"error": "server failure"}'
-    ))
-    
+    page.route(
+        "https://example.com/api/vehicles",
+        lambda route: route.fulfill(status=500, body='{"error": "server failure"}'),
+    )
+
     page_obj.fill_driver_info("Test User", "5555")
     page_obj.add_driver_button.click()
     page_obj.attempt_save_vehicle()
-    
+
     expect(page_obj.error_message).to_have_text("Failed to connect to server")
     expect(page_obj.submit_loading_state).to_be_disabled()
     page.close()

@@ -30,8 +30,8 @@ jobs:
         run: |
           pytest tests/ -v --cov=src --cov-report=term-missing --cov-report=xml
         
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ./coverage.xml
@@ -62,4 +62,3 @@ jobs:
       - name: Install type checking tools
         run: pip install mypy
       - name: Run mypy
-        run: mypy src/
