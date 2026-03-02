@@ -1,7 +1,7 @@
 [project]
-name = "vs-projects"
+name = "playwright-test-generator"
 version = "0.1.0"
-description = "Add your description here"
+description = "AI-powered Playwright test generator using local LLM models via Ollama"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
@@ -19,6 +19,7 @@ dev = [
     "mypy>=1.15.0",
     "pytest>=8.3.0",
     "pytest-cov>=6.0.0",
+    "types-requests>=2.31.0",
 ]
 
 [tool.ruff]

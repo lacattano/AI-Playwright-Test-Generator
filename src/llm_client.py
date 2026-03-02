@@ -66,9 +66,8 @@ class LLMClient:
             response = requests.post(self.url, json=payload, timeout=timeout)
             response.raise_for_status()
             self.response = response.json()
-            full_response: str = (
-                self.response.get("response", "") if self.response else ""
-            )
+            raw = self.response.get("response") if self.response else ""
+            full_response: str = raw if isinstance(raw, str) else ""
             return self._extract_code(full_response)
         except requests.exceptions.ConnectionError as e:
             raise ConnectionError(
@@ -89,5 +88,7 @@ class LLMClient:
         match = re.search(pattern, text, re.DOTALL)
         if match:
             # Strip trailing whitespace (including newline) before closing fences
-            return match.group(1).rstrip()
-        return text.strip()
+            result: str = match.group(1).rstrip()
+            return result
+        # Return empty string if no match found to ensure consistent return type
+        return ""

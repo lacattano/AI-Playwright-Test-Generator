@@ -46,7 +46,7 @@ class TestGenerator:
                 f"Failed to create/access output directory {self.output_dir}: {e}"
             )
 
-    def generate_and_save(self, user_request):
+    def generate_and_save(self, user_request: str) -> str:
         """
         1. Generates code using the AI.
         2. Saves it to a file named based on the timestamp.

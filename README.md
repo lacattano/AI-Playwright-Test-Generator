@@ -6,7 +6,7 @@ An AI-powered tool that generates Playwright Python test scripts using local LLM
 
 | Metric | Status |
 |--------|--------|
-| CI/CD Pipeline | [![CI/CD Pipeline](https://github.com/lacattano/vs-projects/actions/workflows/ci.yml/badge.svg)](https://github.com/lacattano/vs-projects/actions) |
+| CI/CD Pipeline | [![CI/CD Pipeline](https://github.com/lacattano/playwright-test-generator/actions/workflows/ci.yml/badge.svg)](https://github.com/lacattano/playwright-test-generator/actions) |
 | Python 3.13 | ![Python 3.13](https://img.shields.io/badge/python-3.13+-blue.svg) |
 | License | ![License](https://img.shields.io/badge/license-MIT-green.svg) |
 | Test Coverage | [![Coverage Status](coverage.svg)](coverage.html) |
@@ -68,7 +68,7 @@ This project demonstrates **modern QA automation and AI integration skills**:
 1. Clone the repository:
    ```bash
    git clone <repository-url>
-   cd vs-projects
+   cd playwright-test-generator
    ```
 
 2. **Install dependencies**:
@@ -161,7 +161,7 @@ playwright test generated_tests/ --screenshot=on
 ## Project Structure
 
 ```
-vs-projects/
+playwright-test-generator/
 ├── README.md                    # This file
 ├── pyproject.toml               # Project dependencies
 ├── main.py                      # Interactive CLI entry point
