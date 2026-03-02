@@ -62,3 +62,4 @@ jobs:
       - name: Install type checking tools
         run: pip install mypy
       - name: Run mypy
+        run: mypy src/

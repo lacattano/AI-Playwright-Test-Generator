@@ -5,13 +5,13 @@ Test Generator module - generates Playwright test scripts.
 import os
 from datetime import datetime
 
-from llm_client import LLMClient
+from src.llm_client import LLMClient
 
 
 class TestGenerator:
     def __init__(
         self, model_name: str | None = None, output_dir: str = "generated_tests"
-    ):
+    ) -> None:
         """
         Initialize the generator.
         model_name: Ollama model to use (defaults to OLLAMA_MODEL env var or 'qwen3.5:35b' for generation quality).

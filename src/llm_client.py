@@ -83,9 +83,11 @@ class LLMClient:
     def _extract_code(self, text: str) -> str:
         """
         Extract the code block enclosed in triple backticks.
+        Returns code content stripped of surrounding whitespace.
         """
         pattern = r"```(?:python)?\n(.*?)```"
         match = re.search(pattern, text, re.DOTALL)
         if match:
-            return match.group(1)
+            # Strip trailing whitespace (including newline) before closing fences
+            return match.group(1).rstrip()
         return text.strip()

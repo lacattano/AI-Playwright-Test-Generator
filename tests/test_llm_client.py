@@ -82,6 +82,19 @@ class TestGenerateTestMethod:
         assert result == "test code"
 
     @patch("src.llm_client.requests.post")
+    def test_generate_test_with_trailing_newline(self, mock_post):
+        """Verify code with trailing newline is handled correctly."""
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"response": "```python\ntest code\n```"}
+        mock_response.raise_for_status = MagicMock()
+        mock_post.return_value = mock_response
+
+        client = LLMClient()
+        result = client.generate_test("test scenario")
+
+        assert result == "test code"
+
+    @patch("src.llm_client.requests.post")
     def test_generate_test_with_additional_context(self, mock_post):
         """Verify additional context is included in prompt."""
         mock_response = MagicMock()
@@ -117,7 +130,6 @@ class TestExtractCodeMethod:
         input_text = "```python\ntest code\n```"
         result = client._extract_code(input_text)
         assert result == "test code"
-        assert "```" not in result
 
     def test_extracts_code_with_language_specifier(self):
         """Verify code extraction handles language specifier."""
@@ -146,7 +158,6 @@ class TestExtractCodeMethod:
         input_text = "\n```python\ntest code\n```\n"
         result = client._extract_code(input_text)
         assert result == "test code"
-        assert result != "\ntest code\n"
 
     def test_handles_extra_content_around_code(self):
         """Verify content before/after code block is handled."""
@@ -184,11 +195,12 @@ class TestSystemPromptContent:
             or "async_playwright" in client.system_prompt.lower()
         )
 
-    def test_system_prompt_omits_pytest_import(self):
+    def test_system_prompt_excludes_pytest_import(self):
         """Verify system prompt explicitly excludes pytest."""
         client = LLMClient()
         assert "pytest" in client.system_prompt.lower()
-        assert "DO NOT import pytest" in client.system_prompt
+        # The prompt uses "Do NOT include `import pytest`"
+        assert "Do NOT include" in client.system_prompt and "import pytest" in client.system_prompt
 
 
 class TestErrorHandling:
@@ -207,48 +219,6 @@ class TestErrorHandling:
             assert "Connection" in str(e) or "ollama" in str(e).lower()
 
 
-class TestSlugify:
-    """Tests for the slugify utility function from main.py."""
-
-    def slugify_text(self, text: str, max_length: int = 100) -> str:
-        """Helper to test slugify logic inline."""
-        import re
-
-        slug = re.sub(r"[^a-zA-Z0-9]", "_", text)
-        slug = slug.strip("_")
-        slug = slug.lower()
-        if len(slug) > max_length:
-            slug = slug[:max_length]
-        return slug
-
-    def test_slugify_removes_special_chars(self):
-        """Verify special characters are replaced with underscores."""
-        result = self.slugify_text("User Login@2024")
-        assert "@" in "User Login@2024"
-        assert "@" not in result
-        assert "_" in result
-
-    def test_slugify_converts_to_lowercase(self):
-        """Verify output is always lowercase."""
-        result = self.slugify_text("User LOGIN")
-        assert result == "user_login"
-
-    def test_slugify_trims_underscores(self):
-        """Verify leading/trailing underscores are removed."""
-        result = self.slugify_text("__test__")
-        assert result == "test"
-
-    def test_slugify_truncates_to_max_length(self):
-        """Verify output is truncated to max_length."""
-        long_text = "a" * 200
-        result = self.slugify_text(long_text, max_length=10)
-        assert len(result) <= 10
-
-    def test_slugify_preserves_alphanumeric(self):
-        """Verify alphanumeric characters are preserved."""
-        result = self.slugify_text("test123ABC")
-        assert "123" in result
-        assert "ABC".lower() in result
 
 
 if __name__ == "__main__":

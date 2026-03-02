@@ -91,6 +91,8 @@ def test_example(page: Page):
     pass"""
 
             generator = TestGenerator(output_dir=tmpdir)
+            generator.client = MagicMock()
+            generator.client.generate_test = MagicMock(return_value=mock_code)
             result = generator.generate_and_save("test request")
             assert result is not None
             assert ".py" in result
