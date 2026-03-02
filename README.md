@@ -2,14 +2,12 @@
 
 An AI-powered tool that generates Playwright Python test scripts using local LLM models via Ollama.
 
-## Status
-
 | Metric | Status |
 |--------|--------|
-| CI/CD Pipeline | [![CI/CD Pipeline](https://github.com/lacattano/AI-Playwright-Test-Generator/actions/workflows/ci.yml/badge.svg)](https://github.com/lacattano/AI-Playwright-Test-Generator/actions) |
-| Python 3.13 | ![Python 3.13](https://img.shields.io/badge/python-3.13+-blue.svg) |
+| CI/CD Pipeline | ![CI](https://github.com/lacattano/AI-Playwright-Test-Generator/actions/workflows/ci.yml/badge.svg) |
+| Python Version | ![Python 3.13+](https://img.shields.io/badge/python-3.13+-blue.svg) |
 | License | ![License](https://img.shields.io/badge/license-MIT-green.svg) |
-| Test Coverage | [![Coverage Status](coverage.svg)](coverage.html) |
+| Code Coverage | [![codecov](https://codecov.io/gh/lacattano/AI-Playwright-Test-Generator/branch/main/graph/badge.svg)](https://codecov.io/gh/lacattano/AI-Playwright-Test-Generator) |
 
 ---
 
