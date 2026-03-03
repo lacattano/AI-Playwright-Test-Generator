@@ -63,10 +63,10 @@ MOCK_SITE_DIR = Path.cwd() / "generated_tests"
 ---
 
 ### 5. **Markdown Code Fence Parsing** ⚠️
-**Problem:** The LLM outputs markdown code fences (```) around the generated code, and the parser wasn't handling them consistently.
+**Problem:** The LLM outputs markdown code fences (````) around the generated code, and the parser wasn't handling them consistently.
 
 **Fix:** Enhanced the cleaning logic to:
-- Detect and skip markdown fences (```python, ```, etc.)
+- Detect and skip markdown fences (```python`, ```, etc.)
 - Auto-detect when the code block starts by looking for Python-specific patterns
 - Strip remaining fence characters from beginning and end
 
@@ -83,11 +83,106 @@ MOCK_SITE_DIR = Path.cwd() / "generated_tests"
 
 ---
 
+### 7. **CLI Module Architecture** 🆕
+**Problem:** The original project lacked a proper CLI interface with command handling, argument parsing, and structured output.
+
+**Root Cause:** The project only had an interactive menu-based approach without programmatic command-line support.
+
+**Fix:** Implemented a complete CLI module with:
+- `argparse` for command and argument parsing
+- Command sub-commands: `generate`, `test`, `help`
+- Configuration classes: `AnalysisMode`, `ReportFormat` enums
+- Modular components: `InputParser`, `UserStoryAnalyzer`, `TestCaseOrchestrator`, `EvidenceGenerator`, `ReportGenerator`
+- Support for multiple input formats: text, user story, Gherkin, JSON
+
+**Impact:** The tool now supports both interactive and programmatic usage, making it suitable for CI/CD pipelines and automation workflows.
+
+---
+
+### 8. **Output Directory Argument Mismatch** 🆕
+**Problem:** The CLI parser used `--output` for argument name but the handler expected `output_dir`.
+
+**Root Cause:** Inconsistent naming between the argparse definition and the function parameters.
+
+**Fix:** Used `dest="output_dir"` in the argument parser to map `--output` to the `output_dir` parameter:
+```python
+gen_parser.add_argument("--output", "-o", type=str, default="generated_tests", dest="output_dir",
+                      help="Output directory")
+```
+
+**Impact:** The CLI now correctly accepts the `--output` argument and passes it to the generation functions.
+
+---
+
+### 9. **Report Format LOCAL Not Implemented** 🆕
+**Problem:** The `ReportFormat.LOCAL` enum value was defined but the corresponding save method was not implemented.
+
+**Root Cause:** Incomplete implementation of the `save_test_cases` method in `ReportGeneratorBase`.
+
+**Fix:** Implemented `_save_local` method to generate both JSON and XML reports:
+```python
+def _save_local(self) -> Path:
+    """Generate JSON and XML reports for local consumption."""
+    json_path = self._generate_json_report()
+    xml_path = self._generate_xml_report()
+    return Path(json_path)
+```
+
+**Impact:** All report formats are now fully functional, including local JSON and XML exports for CI/CD integration.
+
+---
+
+### 10. **Missing parse_json Method** 🆕
+**Problem:** The `InputParser` class lacked a method to parse JSON-formatted test case input.
+
+**Root Cause:** Only the `parse` method existed, which handled text-based inputs.
+
+**Fix:** Added `parse_json` method:
+```python
+def parse_json(self, json_string: str) -> ParsedInput:
+    """Parse JSON string into ParsedInput."""
+    data = json.loads(json_string)
+    test_cases = []
+    for item in data.get("test_cases", []):
+        test_cases.append(TestCase(
+            title=item.get("title", "Untitled"),
+            description=item.get("description", ""),
+            complexity=item.get("complexity", "MEDIUM"),
+            priority=item.get("priority", 1)
+        ))
+    return ParsedInput(test_cases=test_cases, metadata=data.get("metadata", {}))
+```
+
+**Impact:** Users can now provide JSON-formatted test case definitions directly to the CLI.
+
+---
+
+### 11. **Class Name Inconsistency** 🆕
+**Problem:** The module imported `EvidenceGenerator` but the class was named `EvidenceGen`.
+
+**Root Cause:** Typo/renaming inconsistency in the evidence generator module.
+
+**Fix:** Ensured consistent class naming:
+```python
+from cli.evidence_generator import EvidenceGenerator
+```
+
+**Impact:** Imports now work correctly without `AttributeError`.
+
+---
+
 ## Files Modified
 
 | File | Changes |
 |------|---------|
-| `main.py` | Fixed path calculations, updated prompt template, enhanced CLI output |
+| `cli/main.py` | Complete rewrite with argparse CLI, subcommands, and comprehensive help |
+| `cli/config.py` | Added `AnalysisMode` and `ReportFormat` enums, configuration classes |
+| `cli/input_parser.py` | Added `parse_json` method, improved user story parsing |
+| `cli/story_analyzer.py` | Added complexity analysis, Jira metadata extraction |
+| `cli/test_orchestrator.py` | Added comprehensive test generation with context analysis |
+| `cli/evidence_generator.py` | Fixed class naming, added evidence generation logic |
+| `cli/report_generator.py` | Implemented all report formats (Jira, HTML, Markdown, JSON, XML) |
+| `README.md` | Comprehensive documentation update with CLI commands and examples |
 
 ---
 
@@ -111,6 +206,24 @@ MOCK_SITE_DIR = Path.cwd() / "generated_tests"
    pytest test_example.py
    ```
 
+5. **Test CLI commands:**
+   ```bash
+   python -m cli.main help
+   python -m cli.main generate --input "Login test"
+   python -m cli.main test --filter login
+   ```
+
+6. **Test report generation:**
+   ```bash
+   python -m cli.main generate --input "Test" --reports all
+   ls -la generated_tests/
+   ```
+
+7. **Test JSON input:**
+   ```bash
+   echo '{"test_cases": [{"title": "Test", "description": "Test desc", "complexity": "LOW"}]}' | python -m cli.main generate --format json
+   ```
+
 ---
 
 ## Next Steps for Improvement
@@ -126,6 +239,10 @@ MOCK_SITE_DIR = Path.cwd() / "generated_tests"
 
 4. **Add configuration:** Allow users to specify their own Ollama model, timeout settings, etc.
 
+5. **Add unit tests:** Comprehensive test coverage for CLI components
+
+6. **Add integration tests:** End-to-end testing of the entire workflow
+
 ---
 
 ## Summary
@@ -137,5 +254,19 @@ The main issues identified and fixed were:
 4. **Prompt clarity** - Improved with more structured instructions
 5. **Code fence parsing** - Enhanced the extraction logic
 6. **CLI UX** - Improved with better formatting and visual feedback
+7. **CLI Module** - Implemented complete argparse-based CLI with subcommands
+8. **Argument mismatch** - Fixed `--output` to `output_dir` mapping
+9. **Report formats** - Implemented all report formats including JSON and XML
+10. **JSON parsing** - Added `parse_json` method to handle JSON input
+11. **Class naming** - Fixed `EvidenceGen` to `EvidenceGenerator` consistency
 
-These changes make the `AI-Playwright-Test-Generator` tool more robust and easier to use.
+These changes make the `AI-Playwright-Test-Generator` tool more robust, maintainable, and easier to use for both interactive and automated workflows.
+
+---
+
+## Version History
+
+| Version | Date | Changes |
+|---------|------|---------|
+| 1.0.0 | 2026-03-01 | Initial release with interactive CLI |
+| 1.1.0 | 2026-03-03 | Major CLI overhaul with argparse, report generation, and multi-format support |

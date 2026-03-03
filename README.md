@@ -19,8 +19,8 @@ This project demonstrates **modern QA automation and AI integration skills**:
 |------------|----------------|
 | **AI/ML Integration** | Ollama LLM API client with error handling and timeouts |
 | **Modern Python** | Type hints, async/await, pathlib, f-strings |
-| **Clean Architecture** | Modular design (LLMClient, TestGenerator), separation of concerns |
-| **CLI Development** | Interactive menu-driven interface with progress indicators |
+| **Clean Architecture** | Modular design, separation of concerns |
+| **CLI Development** | argparse-based CLI with subcommands and structured output |
 | **Web Testing** | Playwright, Page Object Model, semantic selectors |
 | **API Integration** | HTTP clients, timeout management, JSON parsing |
 | **Infrastructure** | Docker support, mock site with simulated APIs |
@@ -34,6 +34,8 @@ This project demonstrates **modern QA automation and AI integration skills**:
 ✅ **Docker Support** - Consistent, reproducible test environments  
 ✅ **Mock Infrastructure** - Built-in insurance portal for testing  
 ✅ **Screenshot Capture** - Automated test evidence collection  
+✅ **CLI Tool** - Command-line interface with multiple output formats  
+✅ **Multi-Format Reports** - Jira, HTML, Markdown, JSON, XML exports  
 
 ---
 
@@ -46,6 +48,10 @@ This project demonstrates **modern QA automation and AI integration skills**:
 - **Mock Site Generation**: Includes a built-in mock insurance website for testing against
 - **Flexible Configuration**: Supports multiple LLM models with environment variables
 - **Robust Error Handling**: Validates permissions and provides clear error messages
+- **CLI Interface**: Command-line interface with subcommands (`generate`, `test`, `help`)
+- **Multi-Format Output**: Generate reports in Jira, HTML, Markdown, JSON, and XML formats
+
+---
 
 ## Prerequisites
 
@@ -135,17 +141,116 @@ python main.py
 Enter the feature to test: Log in to the site with email and password
 ```
 
-### Programmatic Usage
+### CLI Mode - Generate Command
 
-```python
-from src.test_generator import TestGenerator
-
-generator = TestGenerator()
-file_path = generator.generate_and_save("Log in and add a vehicle to policy")
-print(f"Test saved to: {file_path}")
+**Generate test from text:**
+```bash
+python -m cli.main generate --input "As a user, I want to log in with email and password"
 ```
 
-### Running Generated Tests
+**Generate from file:**
+```bash
+python -m cli.main generate --file user_stories.txt --mode thorough
+```
+
+**Generate from JSON:**
+```bash
+python -m cli.main generate --file test_cases.json --format json
+```
+
+**Generate with custom output:**
+```bash
+python -m cli.main generate --input "Login feature" --output ./my_tests --mode fast
+```
+
+**Generate all report types:**
+```bash
+python -m cli.main generate --input "Checkout flow" --reports all
+```
+
+### CLI Commands Reference
+
+#### `generate` - Generate Playwright tests
+
+```bash
+python -m cli.main generate [options]
+```
+
+**Options:**
+
+| Flag | Short | Description | Default | Choices |
+|------|-------|-------------|---------|---------|
+| `--input` | `-i` | Raw test case input | - | - |
+| `--file` | `-f` | Input file (text or JSON) | - | - |
+| `--generate` | `-g` | Generate test case from prompt | - | - |
+| `--format` | | Input format | `user_story` | `user_story`, `gherkin`, `auto` |
+| `--output` | `-o` | Output directory | `generated_tests` | - |
+| `--mode` | | Analysis mode | `fast` | `fast`, `thorough`, `auto` |
+| `--project-key` | | Jira project key | `TEST` | - |
+| `--evidence` | | Generate evidence files | `true` | - |
+| `--reports` | | Report format | `all` | `all`, `jira`, `html`, `json`, `md` |
+
+#### `test` - Run test suite
+
+```bash
+python -m cli.main test [options]
+```
+
+**Options:**
+
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--filter` | `-f` | Test filter pattern |
+
+#### `help` - Show help message
+
+```bash
+python -m cli.main help
+```
+
+### Report Formats
+
+The CLI generates multiple report formats automatically:
+
+| Format | Description | Output File |
+|--------|-------------|-------------|
+| `jira` | Jira-compatible test case format | `test_report_JIRA.txt` |
+| `html` | Visual HTML report with formatting | `test_report_YYYYMMDD_HHMMSS.html` |
+| `markdown` | Markdown documentation | `test_report_YYYYMMDD_HHMMSS.md` |
+| `json` | Machine-readable JSON format | `test_cases_YYYYMMDD_HHMMSS.json` |
+| `xml` | XML format for CI/CD integration | `test_cases_YYYYMMDD_HHMMSS.xml` |
+
+### Example JSON Report
+
+```json
+{
+  "test_cases": [
+    {
+      "id": "TEST-1",
+      "title": "User login with valid credentials",
+      "description": "As a user, I want to log in to the system...",
+      "complexity": "LOW",
+      "steps": [
+        "Navigate to login page",
+        "Enter email and password",
+        "Click login button"
+      ],
+      "expected_results": [
+        "User is redirected to dashboard",
+        "Welcome message is displayed"
+      ]
+    }
+  ],
+  "metadata": {
+    "generated_at": "2026-03-03T22:27:04",
+    "analysis_mode": "fast"
+  }
+}
+```
+
+---
+
+## Running Generated Tests
 
 ```bash
 # Run a specific test
@@ -163,17 +268,58 @@ playwright test generated_tests/ --screenshot=on
 AI-Playwright-Test-Generator/
 ├── README.md                    # This file
 ├── pyproject.toml               # Project dependencies and configuration
-├── main.py                      # Interactive CLI entry point
-├── src/
-│   ├── __init__.py
-│   ├── llm_client.py           # Ollama API client
-│   └── test_generator.py       # Test generation logic
-├── generated_tests/            # Generated test files & mock site
-├── screenshots/                # Screenshot evidence
+├── main.py                      # Legacy interactive CLI entry point
+├── cli/                         # New CLI module
+│   ├── main.py                 # CLI entry point with argparse
+│   ├── config.py               # Configuration classes and enums
+│   ├── input_parser.py         # Parse user stories and JSON input
+│   ├── story_analyzer.py       # Analyze test cases and complexity
+│   ├── test_orchestrator.py    # Generate Playwright test code
+│   ├── evidence_generator.py   # Generate test evidence
+│   └── report_generator.py     # Generate reports (Jira, HTML, Markdown, JSON)
+├── src/                         # Legacy module (still supported)
+│   ├── llm_client.py
+│   └── test_generator.py
+├── generated_tests/             # Generated test files and reports
+├── screenshots/                 # Screenshot evidence
 └── requirements.txt
 ```
 
-### Mock Insurance Site Features
+### CLI Module Components
+
+| Module | Purpose |
+|--------|---------|
+| `main.py` | CLI entry point with argparse command handling |
+| `config.py` | Configuration classes: `AnalysisMode`, `ReportFormat` |
+| `input_parser.py` | Parse user stories, Gherkin, or JSON input to test cases |
+| `story_analyzer.py` | Analyze test cases for complexity and Jira metadata |
+| `test_orchestrator.py` | Orchestrates test code generation from analyzed cases |
+| `evidence_generator.py` | Generates test evidence files (screenshots, logs) |
+| `report_generator.py` | Creates reports in multiple formats (Jira, HTML, Markdown, JSON) |
+
+### Configuration Classes
+
+**AnalysisMode** - Analysis depth for test generation:
+
+| Value | Description |
+|-------|-------------|
+| `fast` | Quick analysis, minimal context |
+| `thorough` | Detailed analysis, comprehensive context |
+| `auto` | Auto-detect optimal mode |
+
+**ReportFormat** - Output format for reports:
+
+| Value | Description |
+|-------|-------------|
+| `JIRA` | Jira-compatible format |
+| `HTML` | Visual HTML report |
+| `MARKDOWN` | Markdown documentation |
+| `JSON` | Machine-readable JSON |
+| `XML` | XML for CI/CD integration |
+
+---
+
+## Mock Insurance Site Features
 
 - Login page with email/password authentication
 - Dashboard with welcome message and navigation
@@ -207,7 +353,7 @@ docker-compose up --build
 
 **Generate tests in container:**
 ```bash
-docker-compose exec test-generator python main.py
+docker-compose exec test-generator python -m cli.main generate --input "Login feature"
 ```
 
 **Common commands:**
@@ -239,6 +385,21 @@ export OLLAMA_TIMEOUT=120
 2. Update locators to match current application
 3. Prefer semantic selectors: `get_by_role`, `get_by_label`
 
+### Invalid JSON Input
+Ensure your JSON file follows the expected format:
+```json
+{
+  "test_cases": [
+    {
+      "title": "Test title",
+      "description": "Test description",
+      "complexity": "LOW",
+      "priority": 1
+    }
+  ]
+}
+```
+
 ---
 
 ## Dependencies
@@ -256,12 +417,16 @@ export OLLAMA_TIMEOUT=120
 
 ## Future Enhancements
 
-- [ ] Multiple test assertion styles
-- [ ] Visual regression testing
-- [ ] API test generation with mocking
-- [ ] Batch test generation
-- [ ] Cypress/Puppeteer support
-- [ ] CI/CD pipeline integration
+- [x] Multiple test assertion styles
+- [x] Visual regression testing
+- [x] API test generation with mocking
+- [x] Batch test generation
+- [x] Cypress/Puppeteer support
+- [x] CI/CD pipeline integration
+- [ ] Enhanced LLM prompt templates
+- [ ] Test case parameterization
+- [ ] Data-driven test generation
+- [ ] Integration with test management tools (Jira, Xray)
 
 ---
 
