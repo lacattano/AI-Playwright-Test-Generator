@@ -15,6 +15,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 from cli.config import DetectionMode, config
 
@@ -84,13 +85,13 @@ class ParsedInput:
 class FormatDetector:
     """Auto-detects input format using regex patterns."""
 
-    PATTERNS = {
+    PATTERNS: dict[str, dict[str, Any]] = {
         "jira": {
             "name": "Jira",
             "patterns": [
                 re.compile(r"^(?:Issue|ID|KEY)[:\s]+[\w-]+", re.MULTILINE),
                 re.compile(r"^(?:Summary|Title)[:\s]+", re.MULTILINE),
-                re.compile(r"^(?:Acceptance\s+Criteria|Acceptance\s+Criteria)[:\s]*$", re.MULTILINE),
+                re.compile(r"^(?:Acceptance\s+Criteria)[:\s]*$", re.MULTILINE),
                 re.compile(r"^(?:Description)[:\s]*$", re.MULTILINE),
             ],
         },
@@ -105,7 +106,6 @@ class FormatDetector:
         "bullets": {
             "name": "Bullet Points",
             "patterns": [
-                re.compile(r"^(?:-|\*|\d+\.)\s+\w+", re.MULTILINE),
                 re.compile(r"^(?:-|\*|\d+\.)\s+\w+", re.MULTILINE),
             ],
         },
@@ -431,7 +431,7 @@ class BulletParser:
 class InputParser:
     """Multi-format input parser with auto-detection and fallback."""
 
-    def __init__(self, detection_method: DetectionMode = None):
+    def __init__(self, detection_method: DetectionMode | None = None) -> None:
         """
         Initialize parser.
 
@@ -477,9 +477,9 @@ class InputParser:
 
     def parse_json(self, json_str: str) -> ParsedInput:
         """Parse JSON string into test cases."""
-        data = json.loads(json_str)
+        data: dict | list = json.loads(json_str)
 
-        test_cases = []
+        test_cases: list[TestCase] = []
         if isinstance(data, list):
             for item in data:
                 test_case = TestCase(
@@ -524,7 +524,7 @@ class InputParser:
 
     def _parse_by_format(self, text: str, format_name: str) -> list[TestCase]:
         """Route to appropriate parser based on format."""
-        parsers = {
+        parsers: dict[str, type] = {
             "jira": JiraParser,
             "gherkin": GherkinParser,
             "bullets": BulletParser,
@@ -532,7 +532,7 @@ class InputParser:
         }
 
         parser = parsers.get(format_name, PlainTextParser)
-        return parser.parse(text)
+        return parser.parse(text)  # type: ignore[attr-defined]
 
     def parse_and_save(self, text: str, output_dir: str | None = None) -> str:
         """

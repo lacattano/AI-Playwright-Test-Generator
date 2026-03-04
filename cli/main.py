@@ -138,7 +138,7 @@ def generate_reports(parsed: ParsedInput, analysis_result: AnalysisResult, outpu
         print(f"   ✓ {report_format.value} → {report_path}")
 
 
-def main():
+def main() -> int:
     """Main entry point."""
     parser = argparse.ArgumentParser(
         description="AI Playwright Test Generator - Generate Playwright tests from user stories",

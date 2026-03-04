@@ -12,7 +12,6 @@ dependencies = [
     "requests>=2.32.5",
     "ollama>=0.1.0",
 ]
-
 [dependency-groups]
 dev = [
     "ruff>=0.9.0",
@@ -22,11 +21,10 @@ dev = [
     "types-requests>=2.31.0",
     "pre-commit>=4.5.1",
 ]
-
 [tool.ruff]
 line-length = 120
 target-version = "py313"
-
+exclude = ["generated_tests"]
 [tool.ruff.lint]
 select = [
     "E",  # pycodestyle errors
@@ -38,14 +36,8 @@ select = [
     "UP", # pyupgrade
 ]
 ignore = ["E501", "B027"]
-
 [tool.ruff.lint.isort]
 known-first-party = ["src", "cli"]
-
-[tool.ruff.format]
-quote-style = "double"
-indent-style = "space"
-
 [tool.mypy]
 python_version = "3.13"
 warn_return_any = false

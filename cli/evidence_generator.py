@@ -22,6 +22,8 @@ except ImportError:
     PIL_AVAILABLE = False
     Image = None
 
+from typing import Any
+
 from cli.config import CaptureLevel, ScreenshotNaming, config
 from cli.story_analyzer import AnalyzedTestCase
 
@@ -36,7 +38,7 @@ class ScreenshotMetadata:
     capture_stage: str
     description: str = ""
     file_size: int = 0
-    dimensions: tuple = (0, 0)
+    dimensions: tuple[int, int] = (0, 0)
 
     def to_dict(self) -> dict:
         return {
@@ -75,23 +77,25 @@ class EvidenceCollection:
 class ScreenshotCapturer:
     """Handle screenshot capture and storage."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.storage_mode = config.STORAGE_MODE
         self.naming_convention = config.NAMING_CONVENTION
         self.capture_level = config.CAPTURE_LEVEL
         self.screenshots_dir = config.SCREENSHOT_DIR
         self.screenshot_count = 0
+        self.metadata: list[ScreenshotMetadata] = []
         os.makedirs(self.screenshots_dir, exist_ok=True)
 
-    def capture(self, page, test_case: AnalyzedTestCase, capture_stage: str, step_description: str = "") -> str | None:
+    def capture(
+        self, page: Any, test_case: AnalyzedTestCase, capture_stage: str, step_description: str = ""
+    ) -> str | None:
         """Capture screenshot from page."""
         try:
             screenshot_bytes = page.screenshot(full_page=True)
             filename = self._generate_filename(test_case, capture_stage, step_description)
             filepath = self._save_screenshot(screenshot_bytes, filename, test_case.title)
             file_size = os.path.getsize(filepath)
-
-            ScreenshotMetadata(
+            screenshot_metadata = ScreenshotMetadata(
                 test_case_id=self._generate_case_id(test_case.title),
                 timestamp=datetime.now().isoformat(),
                 file_path=filepath,
@@ -100,7 +104,7 @@ class ScreenshotCapturer:
                 file_size=file_size,
                 dimensions=self._get_screenshot_dimensions(screenshot_bytes),
             )
-
+            self.metadata.append(screenshot_metadata)
             return filepath
 
         except Exception as e:
@@ -168,14 +172,14 @@ class ScreenshotCapturer:
 class EvidenceGenerator:
     """Generate comprehensive test evidence package."""
 
-    def __init__(self, capture_level: CaptureLevel | None = None):
+    def __init__(self, capture_level: CaptureLevel | None = None) -> None:
         self.capture_level = capture_level or config.CAPTURE_LEVEL
         self.capturer = ScreenshotCapturer()
         self.evidence: EvidenceCollection = EvidenceCollection()
         self.test_cases_processed = 0
 
     def capture_test_evidence(
-        self, page, test_case: AnalyzedTestCase, capture_stage: str = "step", step_description: str = ""
+        self, page: Any, test_case: AnalyzedTestCase, capture_stage: str = "step", step_description: str = ""
     ) -> str | None:
         """Capture evidence for a specific test stage."""
         should_capture = self._should_capture(capture_stage)
@@ -345,13 +349,13 @@ class EvidenceGenerator:
 class BugEvidenceGenerator:
     """Generate evidence for bug reporting."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.bug_evidence: list[dict] = []
         self.capturer = ScreenshotCapturer()
 
-    def capture_bug_evidence(self, page, description: str) -> dict:
+    def capture_bug_evidence(self, page: Any, description: str) -> dict:
         """Capture evidence for a bug reproduction."""
-        evidence = {
+        evidence: dict = {
             "description": description,
             "timestamp": datetime.now().isoformat(),
             "screenshot": None,
@@ -409,7 +413,7 @@ class BugEvidenceGenerator:
         return output_path
 
 
-def capture_screenshot(page, test_case: AnalyzedTestCase, capture_stage: str = "step") -> str | None:
+def capture_screenshot(page: Any, test_case: AnalyzedTestCase, capture_stage: str = "step") -> str | None:
     """Capture a single screenshot."""
     generator = EvidenceGenerator()
     return generator.capture_test_evidence(page, test_case, capture_stage)

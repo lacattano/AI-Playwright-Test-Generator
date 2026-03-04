@@ -146,7 +146,7 @@ class DataRequirementAnalyzer:
     def suggest_data(cls, text: str) -> dict[str, Any]:
         """Suggest test data based on content."""
         text_lower = text.lower()
-        suggested_data = {}
+        suggested_data: dict[str, Any] = {}
 
         # Detect data categories needed
         categories = []
@@ -193,7 +193,7 @@ class DependencyAnalyzer:
     @classmethod
     def identify_dependencies(cls, test_case: TestCase, all_cases: list[TestCase]) -> list[str]:
         """Identify dependencies for a test case."""
-        dependencies = []
+        dependencies: list[str] = []
         text_lower = test_case.description.lower()
 
         # Check for explicit preconditions
@@ -361,7 +361,7 @@ class UserStoryAnalyzer:
 
         return max(0.5, base_confidence)
 
-    def _calculate_complexity_distribution(self, cases: list[AnalyzedTestCase]) -> dict:
+    def _calculate_complexity_distribution(self, cases: list[AnalyzedTestCase]) -> dict[str, Any]:
         """Calculate complexity distribution."""
         distribution = {"low": 0, "medium": 0, "high": 0}
 
@@ -377,7 +377,7 @@ class UserStoryAnalyzer:
 class PatternAnalyzer:
     """Detect common testing patterns in user stories."""
 
-    PATTERN_DETECTIONS = {
+    PATTERN_DETECTIONS: dict[str, re.Pattern[str]] = {
         "data_table": re.compile(r"@\d+|[^\n]*\|[^\n]*\|"),
         "parametrization": re.compile(r"(\w+)\s+(?:with|as|using)\s+([^\n]+)"),
         "conditional": re.compile(r"(?:if|when|unless|whenever|in case)\s+.*?(?:then|else|else if|otherwise)"),
@@ -390,7 +390,7 @@ class PatternAnalyzer:
     @classmethod
     def detect_patterns(cls, text: str) -> list[str]:
         """Detect patterns in test text."""
-        detected = []
+        detected: list[str] = []
 
         for pattern_name, pattern_re in cls.PATTERN_DETECTIONS.items():
             if pattern_re.search(text):
@@ -420,7 +420,8 @@ class InputEnricher:
         from cli.input_parser import InputParser
 
         parser = InputParser()
-        parsed = parser.parse(text, explicit_format)
+        explicit_format_str = explicit_format if explicit_format else "user_story"
+        parsed = parser.parse(text, explicit_format_str)
 
         # Then analyze
         return self.analyzer.analyze(parsed)

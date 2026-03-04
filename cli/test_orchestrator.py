@@ -37,9 +37,9 @@ class TestOrchestrationResult:
 class TestCaseOrchestrator:
     """Orchestrate test case flow from analysis to generation."""
 
-    def __init__(self, analysis_mode: AnalysisMode | None = None):
+    def __init__(self, analysis_mode: AnalysisMode | None = None) -> None:
         """Initialize orchestrator."""
-        self.analysis_mode = analysis_mode or config.LLM_ANALYSIS_MODE
+        self.analysis_mode: AnalysisMode = analysis_mode or config.LLM_ANALYSIS_MODE
         self.analyzer = UserStoryAnalyzer(self.analysis_mode)
         self.generated_files: list[str] = []
 
@@ -95,12 +95,12 @@ class TestCaseOrchestrator:
 
         ordered = []
         remaining = list(cases)
-        completed_ids = set()
+        completed_ids: set[int] = set()
 
         while remaining:
             # Find cases with all dependencies satisfied
-            ready = []
-            not_ready = []
+            ready: list[AnalyzedTestCase] = []
+            not_ready: list[AnalyzedTestCase] = []
 
             for case in remaining:
                 deps_satisfied = self._check_dependencies_satisfied(case, completed_ids)
@@ -118,9 +118,9 @@ class TestCaseOrchestrator:
             ready.sort(key=lambda c: self._complexity_score(c.estimated_complexity))
 
             # Add ready cases to ordered list
-            for case in ready:
-                ordered.append(case)
-                completed_ids.add(id(case))
+            for c in ready:
+                ordered.append(c)
+                completed_ids.add(id(c))
 
             remaining = not_ready
 
@@ -130,19 +130,11 @@ class TestCaseOrchestrator:
         """Check if all dependencies for a case are satisfied."""
         if not case.dependencies:
             return True
-
         for dep in case.dependencies:
             if "Depends on:" in dep:
-                # Find the referenced case
-                ref_title = dep.replace("Depends on:", "").strip().lower()
-                found = False
-                for _case_id in completed_ids:
-                    if any(ref_title in str(c.title).lower() for c in [] if False):  # Would need access to all cases
-                        found = True
-                        break
+                found = False  # TODO: implement dependency checking when case list is accessible
                 if not found:
                     return False
-
         return True
 
     def _complexity_score(self, complexity: str) -> int:
@@ -185,10 +177,10 @@ class TestCaseOrchestrator:
 
     def _generate_test_content(self, test_type: str, cases: list[AnalyzedTestCase]) -> str:
         """Generate Playwright test file content."""
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        timestamp: str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         # Generate imports
-        imports = [
+        imports: list[str] = [
             "from playwright.sync_api import Page, expect, Playwright, sync_playwright",
             "import pytest",
             "import os",
@@ -197,11 +189,11 @@ class TestCaseOrchestrator:
         ]
 
         # Generate test class header
-        class_lines = [
+        class_lines: list[str] = [
             f"class Test{test_type.title().replace(' ', '')}:",
             f'    """Auto-generated test class for {test_type} scenarios.',
-            f'    Generated from AI Playwright Test Generator on {timestamp}',
-            f'    Source analysis: {len(cases)} test cases',
+            f"    Generated from AI Playwright Test Generator on {timestamp}",
+            f"    Source analysis: {len(cases)} test cases",
             '    """',
             "",
             "    @pytest.fixture",
@@ -231,7 +223,7 @@ class TestCaseOrchestrator:
             test_methods.append(test_method)
 
         # Assemble file content
-        content = "".join(imports) + class_header + "".join(test_methods)
+        content = "\n".join(imports) + "\n" + class_header + "".join(test_methods)
 
         return content
 
