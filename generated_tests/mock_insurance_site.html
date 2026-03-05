@@ -67,6 +67,10 @@
         button:hover {
             background-color: #0056b3;
         }
+        button:disabled {
+            background-color: #aaa;
+            cursor: not-allowed;
+        }
         .btn-secondary {
             background-color: #6c757d;
             margin-right: 10px;
@@ -127,6 +131,38 @@
             font-style: italic;
             color: #666;
         }
+        /* Driver list styles */
+        [aria-label="Assigned Drivers"] {
+            list-style: none;
+            padding: 0;
+            margin: 10px 0;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            min-height: 48px;
+        }
+        [aria-label="Assigned Drivers"] li {
+            padding: 8px 12px;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        [aria-label="Assigned Drivers"] li:last-child {
+            border-bottom: none;
+        }
+        .driver-tag {
+            background: #e7f3ff;
+            border-radius: 4px;
+            padding: 4px 10px;
+            font-size: 14px;
+            color: #0056b3;
+        }
+        .submitting-indicator {
+            display: none;
+            font-style: italic;
+            color: #888;
+            margin-top: 8px;
+        }
     </style>
 </head>
 <body>
@@ -151,7 +187,7 @@
 
             <div class="action-buttons">
                 <button id="addOrChangeVehicleBtn">Add or Change Vehicle</button>
-                <button class="btn-secondary">Add Driver</button>
+                <button class="btn-secondary" id="addDriverBtn">Add Driver</button>
                 <button class="btn-secondary">View Coverage</button>
             </div>
         </div>
@@ -208,10 +244,43 @@
             <div class="alert alert-error" id="errorMessage" role="alert"></div>
             <div class="alert alert-success" id="successMessage">Policy updated successfully</div>
         </div>
+
+        <!-- ── Add Driver Form (hidden initially) ── -->
+        <div id="addDriverForm" style="display: none;">
+            <h2>Add Drivers to Vehicle</h2>
+
+            <div class="form-group">
+                <label for="driverNameInput">Driver Name</label>
+                <input type="text" id="driverNameInput" aria-label="Driver Name" placeholder="Enter full name">
+            </div>
+
+            <div class="form-group">
+                <label for="licenseInput">License Number</label>
+                <input type="text" id="licenseInput" aria-label="License Number" placeholder="Enter licence number">
+            </div>
+
+            <div class="action-buttons">
+                <button id="addDriverToListBtn" aria-label="Add Driver">Add Driver</button>
+                <button class="btn-secondary" id="cancelDriverBtn">Cancel</button>
+            </div>
+
+            <div class="form-group" style="margin-top: 20px;">
+                <label>Assigned Drivers</label>
+                <ul aria-label="Assigned Drivers" id="driverList"></ul>
+            </div>
+
+            <div class="action-buttons">
+                <button id="saveVehicleBtn" aria-label="Save Vehicle" disabled>Save Vehicle</button>
+                <span class="submitting-indicator" aria-label="Submitting" id="submittingIndicator">Saving…</span>
+            </div>
+
+            <div class="alert alert-error" id="driverErrorMessage" role="alert">Please fill all required fields</div>
+            <div class="alert alert-success" id="driverSuccessMessage">Drivers added successfully</div>
+        </div>
     </div>
 
     <script>
-        // DOM Elements
+        // ── Existing vehicle form logic ──────────────────────────────────────
         const updatePolicyLink = document.getElementById('updatePolicyLink');
         const mainPolicyPage = document.getElementById('mainPolicyPage');
         const vehicleUpdateForm = document.getElementById('vehicleUpdateForm');
@@ -223,31 +292,24 @@
         const vehicleDetails = document.getElementById('vehicleDetails');
         const errorMessage = document.getElementById('errorMessage');
         const successMessage = document.getElementById('successMessage');
-        
-        // Form fields
         const ownerInput = document.getElementById('ownerName');
         const keeperInput = document.getElementById('keeperName');
         const driverInput = document.getElementById('driverName');
         const ageInput = document.getElementById('vehicleAge');
         const specInput = document.getElementById('vehicleSpec');
 
-        // Toggle between main page and vehicle update form
         updatePolicyLink.addEventListener('click', (e) => {
             e.preventDefault();
             showVehicleUpdateForm();
         });
 
-        addOrChangeVehicleBtn.addEventListener('click', () => {
-            showVehicleUpdateForm();
-        });
-
-        cancelBtn.addEventListener('click', () => {
-            hideVehicleUpdateForm();
-        });
+        addOrChangeVehicleBtn.addEventListener('click', () => showVehicleUpdateForm());
+        cancelBtn.addEventListener('click', () => hideVehicleUpdateForm());
 
         function showVehicleUpdateForm() {
             mainPolicyPage.style.display = 'none';
             vehicleUpdateForm.style.display = 'block';
+            document.getElementById('addDriverForm').style.display = 'none';
             resetForm();
         }
 
@@ -257,7 +319,6 @@
         }
 
         function resetForm() {
-            document.querySelector('#vehicleUpdateForm form')?.reset();
             registrationInput.value = '';
             ownerInput.value = '';
             keeperInput.value = '';
@@ -270,26 +331,19 @@
             successMessage.style.display = 'none';
         }
 
-        // Vehicle lookup by registration
         registrationInput.addEventListener('blur', function() {
             const reg = this.value.trim().toUpperCase();
-            
             if (reg.length < 3) {
                 lookupStatus.textContent = 'Please enter a valid registration number';
                 return;
             }
-
             lookupStatus.textContent = 'Looking up vehicle...';
-
-            // Simulate API call with setTimeout
             setTimeout(() => {
-                // Mock database of registrations
                 const mockData = {
                     'AB12CDE': { make: 'Honda', model: 'CR-V', year: '2020', color: 'Silver' },
-                    'XYZ789': { make: 'Ford', model: 'Focus', year: '2019', color: 'Blue' },
-                    'DEF456': { make: 'Toyota', model: 'Yaris', year: '2021', color: 'White' }
+                    'XYZ789':  { make: 'Ford',  model: 'Focus', year: '2019', color: 'Blue' },
+                    'DEF456':  { make: 'Toyota', model: 'Yaris', year: '2021', color: 'White' }
                 };
-
                 if (mockData[reg]) {
                     const data = mockData[reg];
                     vehicleDetails.classList.add('visible');
@@ -298,11 +352,7 @@
                     document.getElementById('vehicleYear').textContent = data.year;
                     document.getElementById('vehicleColor').textContent = data.color;
                     lookupStatus.textContent = '';
-                    
-                    // Calculate and set age based on current year
-                    const currentYear = new Date().getFullYear();
-                    const age = currentYear - parseInt(data.year);
-                    ageInput.value = age.toString();
+                    ageInput.value = (new Date().getFullYear() - parseInt(data.year)).toString();
                 } else {
                     vehicleDetails.classList.remove('visible');
                     lookupStatus.textContent = 'Registration not found. Please enter manually.';
@@ -310,60 +360,25 @@
             }, 500);
         });
 
-        // Form submission with validation
         updateVehicleBtn.addEventListener('click', () => {
-            const reg = registrationInput.value.trim();
+            const reg   = registrationInput.value.trim();
             const owner = ownerInput.value.trim();
             const keeper = keeperInput.value.trim();
             const driver = driverInput.value.trim();
-            const age = ageInput.value.value;
-            const spec = specInput.value.trim();
+            const age   = ageInput.value;
+            const spec  = specInput.value.trim();
 
-            // Reset error display
             errorMessage.style.display = 'none';
 
-            // Validation
-            if (!reg) {
-                showError('Registration number is required');
-                return;
-            }
+            if (!reg)                              return showError('Registration number is required');
+            if (!reg.match(/^[A-Z0-9]{3,7}$/))    return showError('Please enter a valid registration (e.g., AB12 CDE)');
+            if (!owner)                            return showError('Please enter the policy owner name');
+            if (!keeper)                           return showError('Please enter the registered keeper name');
+            if (!driver)                           return showError('Please enter the main driver name');
+            if (!age || isNaN(age) || age <= 0)    return showError('Please enter a valid vehicle age');
+            if (age < 0 || age > 100)              return showError('Age must be a positive number');
+            if (!spec)                             return showError('Please enter vehicle specifications');
 
-            if (!reg.match(/^[A-Z0-9]{3,7}$/)) {
-                showError('Please enter a valid registration (e.g., AB12 CDE)');
-                return;
-            }
-
-            if (!owner) {
-                showError('Please enter the policy owner name');
-                return;
-            }
-
-            if (!keeper) {
-                showError('Please enter the registered keeper name');
-                return;
-            }
-
-            if (!driver) {
-                showError('Please enter the main driver name');
-                return;
-            }
-
-            if (!age || isNaN(age) || age <= 0) {
-                showError('Please enter a valid vehicle age');
-                return;
-            }
-
-            if (age < 0 || age > 100) {
-                showError('Age must be a positive number');
-                return;
-            }
-
-            if (!spec) {
-                showError('Please enter vehicle specifications');
-                return;
-            }
-
-            // Simulate successful update
             simulateUpdate();
         });
 
@@ -376,8 +391,6 @@
         function simulateUpdate() {
             updateVehicleBtn.disabled = true;
             updateVehicleBtn.textContent = 'Updating...';
-
-            // Simulate network request
             setTimeout(() => {
                 errorMessage.style.display = 'none';
                 successMessage.style.display = 'block';
@@ -386,7 +399,93 @@
             }, 1000);
         }
 
-        // Demo data for testing
+        // ── Add Driver form logic ────────────────────────────────────────────
+        const addDriverBtn         = document.getElementById('addDriverBtn');
+        const addDriverForm        = document.getElementById('addDriverForm');
+        const addDriverToListBtn   = document.getElementById('addDriverToListBtn');
+        const cancelDriverBtn      = document.getElementById('cancelDriverBtn');
+        const saveVehicleBtn       = document.getElementById('saveVehicleBtn');
+        const driverNameInput      = document.getElementById('driverNameInput');
+        const licenseInput         = document.getElementById('licenseInput');
+        const driverList           = document.getElementById('driverList');
+        const driverErrorMessage   = document.getElementById('driverErrorMessage');
+        const driverSuccessMessage = document.getElementById('driverSuccessMessage');
+        const submittingIndicator  = document.getElementById('submittingIndicator');
+
+        addDriverBtn.addEventListener('click', () => {
+            mainPolicyPage.style.display = 'none';
+            vehicleUpdateForm.style.display = 'none';
+            addDriverForm.style.display = 'block';
+            resetDriverForm();
+        });
+
+        cancelDriverBtn.addEventListener('click', () => {
+            addDriverForm.style.display = 'none';
+            mainPolicyPage.style.display = 'block';
+        });
+
+        addDriverToListBtn.addEventListener('click', () => {
+            const name    = driverNameInput.value.trim();
+            const license = licenseInput.value.trim();
+
+            driverErrorMessage.style.display = 'none';
+
+            if (!name || !license) {
+                driverErrorMessage.style.display = 'block';
+                return;
+            }
+
+            // Validate: name must not be purely numeric
+            if (/^\d/.test(name)) {
+                driverErrorMessage.style.display = 'block';
+                driverErrorMessage.textContent = 'Please fill all required fields';
+                return;
+            }
+
+            // Add to list
+            const li = document.createElement('li');
+            li.innerHTML = `<span class="driver-tag">${name} (${license})</span>`;
+            driverList.appendChild(li);
+
+            // Enable save and clear fields
+            saveVehicleBtn.disabled = false;
+            driverNameInput.value = '';
+            licenseInput.value = '';
+        });
+
+        saveVehicleBtn.addEventListener('click', () => {
+            if (driverList.children.length === 0) {
+                driverErrorMessage.style.display = 'block';
+                return;
+            }
+
+            // Show submitting state
+            saveVehicleBtn.disabled = true;
+            submittingIndicator.style.display = 'inline';
+            driverErrorMessage.style.display = 'none';
+
+            // Simulate API call to /api/vehicles
+            fetch('/api/vehicles', { method: 'POST', body: '{}' })
+                .catch(() => {})  // mock site — network call will fail, handle below
+                .finally(() => {
+                    setTimeout(() => {
+                        submittingIndicator.style.display = 'none';
+                        saveVehicleBtn.disabled = false;
+                        driverSuccessMessage.style.display = 'block';
+                    }, 800);
+                });
+        });
+
+        function resetDriverForm() {
+            driverNameInput.value = '';
+            licenseInput.value = '';
+            driverList.innerHTML = '';
+            saveVehicleBtn.disabled = true;
+            driverErrorMessage.style.display = 'none';
+            driverSuccessMessage.style.display = 'none';
+            submittingIndicator.style.display = 'none';
+        }
+
         console.log('Available test registrations: AB12CDE, XYZ789, DEF456');
     </script>
 </body>
