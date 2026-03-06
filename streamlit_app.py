@@ -13,7 +13,7 @@ from pathlib import Path
 import streamlit as st
 from dotenv import load_dotenv
 
-from src.file_utils import rename_test_file, save_generated_test
+from src.file_utils import normalise_code_newlines, rename_test_file, save_generated_test
 from src.llm_client import LLMClient
 
 # Load environment variables with explicit path so it works regardless of cwd
@@ -507,7 +507,7 @@ Generate the Playwright test code now:"""
         with st.spinner("Generating Playwright test."):
             test_code = llm_client.generate_test(prompt)
             if test_code:
-                return test_code.strip()
+                return normalise_code_newlines(test_code.strip())
     except Exception as e:
         _log(f"LLM error: {str(e)}", "error")
         st.error(f"Failed to generate test: {str(e)}")

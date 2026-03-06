@@ -71,6 +71,36 @@ Base URL:  {base_url or "Not specified"}
     return str(file_path.absolute())
 
 
+def normalise_code_newlines(code: str) -> str:
+    """Restore missing newlines in LLM-generated code.
+
+    Occasionally the LLM response has newlines stripped between import
+    statements, producing unparseable output like:
+        from playwright.sync_api import Pageimport pytestimport os
+
+    This function inserts a newline before any ``import`` or ``from``
+    keyword that is not already at the start of a line.
+
+    Args:
+        code: Raw code string from the LLM
+
+    Returns:
+        Code string with newlines restored before import statements
+
+    Examples:
+        >>> normalise_code_newlines("import osimport re")
+        'import os\\nimport re'
+        >>> normalise_code_newlines("from pathlib import Pathimport os")
+        'from pathlib import Path\\nimport os'
+        >>> normalise_code_newlines("import os\\nimport re")
+        'import os\\nimport re'
+    """
+    # Insert a newline before `import ` or `from ` when not already
+    # preceded by a newline or start-of-string.
+    code = re.sub(r"(?<!\n)(?<!^)(import |from )", r"\n\1", code, flags=re.MULTILINE)
+    return code
+
+
 def rename_test_file(old_path: str, new_name: str) -> str:
     """
     Rename a test file on disk.

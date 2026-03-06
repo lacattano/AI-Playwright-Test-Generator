@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
-# launch_ui.sh — Start the AI Test Generator UI
+# launch_ui.sh — Start the AI Test Generator UI only.
+#
+# For development with the mock insurance site, use launch_dev.sh instead.
+#
 # Usage: bash launch_ui.sh
 
 set -e
@@ -30,17 +33,6 @@ uv sync
 # Activate venv if not already active
 if [[ "$VIRTUAL_ENV" == "" ]]; then
   source .venv/Scripts/activate 2>/dev/null || source .venv/bin/activate 2>/dev/null
-fi
-
-# Start mock site in background if it's not already running
-if ! curl -s http://localhost:8080 &>/dev/null; then
-  echo "🌐  Starting mock site at http://localhost:8080…"
-  python -m http.server 8080 --directory generated_tests &
-  MOCK_PID=$!
-  sleep 1
-  echo "✅  Mock site running (PID $MOCK_PID)"
-else
-  echo "✅  Mock site already running on port 8080"
 fi
 
 echo ""
