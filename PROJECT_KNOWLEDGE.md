@@ -243,6 +243,34 @@ source .venv/Scripts/activate   # Git Bash / Windows
 **Cause:** Variable annotated inside a `try` block then re-annotated outside it
 **Solution:** Declare the variable with the wider type (`str | None = None`) before the `try` block
 
+### Issue: Last 2 Criteria Get No Tests
+**Symptoms:** User story with 4+ acceptance criteria — only first 2-3 tests generated, last 2-3 criteria have no tests
+**Cause:** LLM truncation of response or failure to iterate through all criteria
+**Solution:** Fixed in `streamlit_app.py` — `generate_test_for_story()` now includes explicit prompt:
+- Criteria enumerated with line numbers: `1. Criterion 1`, `2. Criterion 2`, etc.
+- Clear instruction: "generate ONE test per criterion"
+- Total count displayed: "(Total: N criteria)"
+- Critical requirement section: "DO NOT skip, combine, or omit any criteria"
+- Final warning: "DO NOT skip the last criteria — all N criteria must have tests"
+
+### Issue: Run/Download Buttons Clear Page
+**Symptoms:** After generating test, clicking "Run Now" or download buttons causes page to clear, shows only user story input
+**Cause:** Button click triggers `st.rerun()` without preserving test output from local variables
+**Solution:** Fixed — output section now reads from `st.session_state` using `.get()` method:
+```python
+test_code = st.session_state.get("generated_test")
+saved_path = st.session_state.get("saved_test_path")
+story_for_coverage = st.session_state.get("last_story", "")
+```
+This persists data across reruns, preventing page clearing.
+
+### Issue: Pre-commit fails with "files were modified by this hook"
+- [x] Verify the prompt fix actually addresses "last 2 criteria get no tests"
+- [x] Read streamlit_app.py sections about the generate function and prompt
+- [x] Confirm main() output rendering changes are correct
+- [x] Update PROJECT_KNOWLEDGE.md with relevant information about the fixes
+</task_progress>
+
 ### Issue: `bash` command not found
 **Symptoms:** Running `bash launch_ui.sh` fails
 **Cause:** You're in PowerShell, not Git Bash

@@ -1,12 +1,18 @@
-# Python
+# ── Python ───────────────────────────────────────────────────────────────────
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
+*.egg
+*.egg-info/
+MANIFEST
 .Python
+.installed.cfg
+
+# ── Build & Distribution ──────────────────────────────────────────────────────
 build/
-develop-eggs/
 dist/
+develop-eggs/
 downloads/
 eggs/
 .eggs/
@@ -16,49 +22,53 @@ parts/
 sdist/
 var/
 wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
 
-# Virtual environments
+# ── Virtual Environments ──────────────────────────────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+
+# ── Environment & Secrets ─────────────────────────────────────────────────────
 .env
 .env.local
 .env.*.local
-venv/
-ENV/
-env/
-.venv/
 
-# IDE
+# ── IDE ───────────────────────────────────────────────────────────────────────
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
 
-# OS
+# ── OS ────────────────────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
 
-# Docker
+# ── Docker ────────────────────────────────────────────────────────────────────
 .docker/
 
-# Logs
+# ── Logs & Debug Output ───────────────────────────────────────────────────────
 *.log
 logs/
+streamlit.err
+pytest_out*.txt
 
-# Testing
+# ── Testing & Coverage ────────────────────────────────────────────────────────
 .pytest_cache/
 .coverage
+coverage.xml
 htmlcov/
 .tox/
+test-results/
 
-# Generated test outputs (optional - exclude if you always want to generate fresh)
-# generated_tests/
+# ── Type Checking ─────────────────────────────────────────────────────────────
+.mypy_cache/
 
-# MyPy
-.myPyCache/
-.mypy_cache/screenshots/*
+# ── Screenshots ───────────────────────────────────────────────────────────────
 screenshots/*
 !screenshots/.gitkeep
+*.png
+
+# ── Generated Test Files ──────────────────────────────────────────────────────
+generated_tests/test_*.py

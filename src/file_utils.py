@@ -95,9 +95,9 @@ def normalise_code_newlines(code: str) -> str:
         >>> normalise_code_newlines("import os\\nimport re")
         'import os\\nimport re'
     """
-    # Insert a newline before `import ` or `from ` when not already
-    # preceded by a newline or start-of-string.
-    code = re.sub(r"(?<!\n)(?<!^)(import |from )", r"\n\1", code, flags=re.MULTILINE)
+    # Insert a newline before `import ` or `from ` when preceded by a character
+    # that indicates it was merged (like a letter, number, or closing punctuation).
+    code = re.sub(r"([a-zA-Z0-9_)'\"\]\}])(import |from )", r"\1\n\2", code)
     return code
 
 

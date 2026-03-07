@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 
 from src.file_utils import normalise_code_newlines, rename_test_file, save_generated_test
 from src.llm_client import LLMClient
+from src.page_context_scraper import PageContext, scrape_page_context
 
 # Load environment variables with explicit path so it works regardless of cwd
 load_dotenv(dotenv_path=Path(__file__).parent / ".env")
@@ -76,7 +77,7 @@ def parse_test_functions(test_code: str) -> list[TestFunction]:
     Returns:
         List of TestFunction dataclass instances
     """
-    test_functions = []
+    test_functions: list[TestFunction] = []
     lines = test_code.splitlines()
     current_test: TestFunction | None = None
     docstring_lines: list[str] = []
@@ -88,7 +89,7 @@ def parse_test_functions(test_code: str) -> list[TestFunction]:
         # Detect test function definition
         if stripped.startswith("def test_") and "(" in stripped:
             # Save previous test function if exists
-            if current_test:
+            if current_test is not None:
                 current_test.line_end = i - 1
                 test_functions.append(current_test)
 
@@ -101,7 +102,7 @@ def parse_test_functions(test_code: str) -> list[TestFunction]:
             )
             in_docstring = False
             docstring_lines = []
-        elif current_test and not in_docstring:
+        elif current_test is not None and not in_docstring:
             # Check for docstring start (triple quotes)
             if '"""' in stripped or "'''" in stripped:
                 in_docstring = True
@@ -118,7 +119,7 @@ def parse_test_functions(test_code: str) -> list[TestFunction]:
                     # Multi-line docstring start
                     docstring_lines.append(stripped.split(quote, 1)[1] if ":" not in stripped else "")
                     in_docstring = True
-        elif current_test and in_docstring:
+        elif current_test is not None and in_docstring:
             if '"""' in stripped or "'''" in stripped:
                 # End of docstring
                 quote = '"""' if '"""' in stripped else "'''"
@@ -132,13 +133,13 @@ def parse_test_functions(test_code: str) -> list[TestFunction]:
                 docstring_lines.append(stripped)
 
         # If still collecting docstring at end of file
-        if current_test and in_docstring and i == len(lines):
+        if current_test is not None and in_docstring and i == len(lines):
             current_test.line_end = i
             current_test.docstring = "\n".join(docstring_lines)
             test_functions.append(current_test)
 
     # Handle case where test function was just defined
-    if current_test and not in_docstring:
+    if current_test is not None and not in_docstring:
         current_test.line_end = len(lines)
         test_functions.append(current_test)
 
@@ -166,8 +167,9 @@ def extract_criteria_from_user_story(user_story: str) -> list[str]:
         # Match bullet points or numbered items
         for pattern in [bullet_re, numbered_re]:
             match = pattern.match(line_stripped)
-            if match and match.lastindex:
-                criteria.append(match.group(match.lastindex).strip())
+            if match and match.lastindex is not None:
+                last_idx = int(match.lastindex)
+                criteria.append(match.group(last_idx).strip())
                 break
         else:
             # Match Gherkin syntax
@@ -175,18 +177,24 @@ def extract_criteria_from_user_story(user_story: str) -> list[str]:
             if gherkin_match:
                 # Use the 'when' or 'then' part as the criterion
                 for idx in [2, 3]:  # 'when' or 'then' groups
-                    if gherkin_match.lastindex and gherkin_match.lastindex >= idx and gherkin_match.group(idx):
-                        criteria.append(gherkin_match.group(idx).strip())
+                    if (
+                        gherkin_match.lastindex is not None
+                        and int(gherkin_match.lastindex) >= idx
+                        and gherkin_match.group(idx)
+                    ):
+                        val = str(gherkin_match.group(idx)).strip()
+                        criteria.append(val)
                         break
             # Match "should/must" pattern
             elif should_re.match(line_stripped):
                 match = should_re.match(line_stripped)
-                if match and match.lastindex and match.lastindex >= 2:
-                    criteria.append(match.group(2).strip())
+                if match and match.lastindex is not None and int(match.lastindex) >= 2:
+                    val = str(match.group(2)).strip()
+                    criteria.append(val)
                 else:
                     criteria.append(line_stripped)
 
-    return criteria if criteria else [user_story.strip()[:120]]
+    return criteria if criteria else [str(user_story).strip()[:120]]
 
 
 def map_tests_to_criteria(
@@ -207,15 +215,13 @@ def map_tests_to_criteria(
 
     for i, criterion_text in enumerate(criteria, 1):
         req_id = f"TC-{i:03}"
-        linked_tests = []
+        linked_tests: list[TestFunction] = []
         criterion_lower = criterion_text.lower()
         criterion_words = set(criterion_lower.split())
 
         # Create a new coverage entry
-        coverage.append(
-            RequirementCoverage(
-                requirement_id=req_id, text=criterion_text, linked_tests=[], status="pending", confidence=0.0
-            )
+        current_cov = RequirementCoverage(
+            requirement_id=req_id, text=criterion_text, linked_tests=[], status="pending", confidence=0.0
         )
 
         # Now try to match tests
@@ -227,14 +233,17 @@ def map_tests_to_criteria(
             overlap = len(criterion_words & test_words)
             if overlap >= 2 or any(word in test_func.name for word in criterion_words):
                 linked_tests.append(test_func)
-                coverage[-1].status = "covered"
-                coverage[-1].confidence = 0.9
+                current_cov.status = "covered"
+                current_cov.confidence = 0.9
                 break
 
         # If no tests linked, keep as pending - no duplicate entries
         if not linked_tests:
-            coverage[-1].status = "pending"
-            coverage[-1].confidence = 0.0
+            current_cov.status = "pending"
+            current_cov.confidence = 0.0
+
+        current_cov.linked_tests = linked_tests
+        coverage.append(current_cov)
 
     # Recalculate confidence scores
     for req_cov in coverage:
@@ -264,7 +273,7 @@ def calculate_coverage(coverage: list[RequirementCoverage]) -> dict[str, float]:
 
     covered = sum(1 for r in coverage if r.status == "covered" and r.confidence > 0.7)
     pending = sum(1 for r in coverage if r.status == "pending")
-    high_conf = sum(1 for r in coverage if r.confidence > 0.9)
+    high_conf = sum(1 for r in coverage if r.confidence >= 0.9)
     low_conf = sum(1 for r in coverage if 0 < r.confidence <= 0.7)
 
     return {
@@ -349,7 +358,7 @@ def display_coverage(coverage: list[RequirementCoverage]) -> None:
                 <div class="lbl">Requirements</div>
             </div>
             <div class="metric-card">
-                <div class="val">{len(coverage) - metrics["pending"]:.0f}%</div>
+                <div class="val">{metrics["high_confidence"]:.0f}%</div>
                 <div class="lbl">High Confidence</div>
             </div>
             <div class="metric-card">
@@ -392,12 +401,69 @@ def display_coverage(coverage: list[RequirementCoverage]) -> None:
                 st.caption(f"{req.confidence:.0%} confidence")
 
 
-def display_run_button(saved_file_path: str) -> tuple[bool, str]:
+def _generate_json_report(test_code: str, coverage: list[RequirementCoverage] | None = None) -> str:
+    """Generate a JSON report of the test and coverage data."""
+    import json as _json
+
+    report: dict[str, object] = {
+        "generated_at": datetime.now().isoformat(),
+        "test_code": test_code,
+    }
+    if coverage:
+        report["coverage"] = [
+            {
+                "id": r.requirement_id,
+                "text": r.text,
+                "status": r.status,
+                "confidence": r.confidence,
+                "linked_tests": [t.name for t in r.linked_tests],
+            }
+            for r in coverage
+        ]
+    return _json.dumps(report, indent=2)
+
+
+def _generate_html_report(test_code: str, coverage: list[RequirementCoverage] | None = None) -> str:
+    """Generate a standalone HTML report."""
+    rows = ""
+    if coverage:
+        for r in coverage:
+            status_icon = "✅" if r.status == "covered" else "🔴"
+            tests = ", ".join(t.name for t in r.linked_tests) or "None"
+            rows += f"<tr><td>{r.requirement_id}</td><td>{r.text}</td><td>{status_icon} {r.status}</td><td>{r.confidence:.0%}</td><td>{tests}</td></tr>\n"
+    import html as _html
+
+    escaped_code = _html.escape(test_code)
+    return f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Test Report</title>
+<style>
+  body {{ font-family: system-ui, sans-serif; max-width: 960px; margin: 2rem auto; padding: 0 1rem; }}
+  table {{ border-collapse: collapse; width: 100%; margin: 1rem 0; }}
+  th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
+  th {{ background: #2d2d2d; color: white; }}
+  pre {{ background: #1e1e1e; color: #d4d4d4; padding: 1rem; border-radius: 6px; overflow-x: auto; }}
+  h1 {{ color: #333; }} h2 {{ color: #555; }}
+</style></head><body>
+<h1>🎭 AI Playwright Test Report</h1>
+<p>Generated: {datetime.now().isoformat()}</p>
+<h2>📊 Coverage</h2>
+<table><tr><th>ID</th><th>Requirement</th><th>Status</th><th>Confidence</th><th>Tests</th></tr>
+{rows}</table>
+<h2>🐍 Test Code</h2>
+<pre><code>{escaped_code}</code></pre>
+</body></html>"""
+
+
+def display_run_button(
+    saved_file_path: str, test_code: str = "", coverage: list[RequirementCoverage] | None = None
+) -> tuple[bool, str]:
     """
-    Display Run Now button and execute tests.
+    Display Run Now button and download options.
 
     Args:
         saved_file_path: Path to the saved test file
+        test_code: The generated test code string
+        coverage: Coverage analysis results for report generation
 
     Returns:
         Tuple of (success: bool, output: str)
@@ -406,6 +472,50 @@ def display_run_button(saved_file_path: str) -> tuple[bool, str]:
 
     with col1:
         run_button = st.button("▶️ Run Now", use_container_width=True, type="primary", key="run_btn")
+
+    # Download section
+    st.markdown("#### ⬇️ Download Output")
+    dl_col1, dl_col2, dl_col3 = st.columns(3)
+
+    try:
+        with open(saved_file_path, encoding="utf-8") as f:
+            file_content = f.read()
+    except Exception:
+        file_content = test_code
+
+    with dl_col1:
+        st.download_button(
+            label="🐍 Python (.py)",
+            data=file_content,
+            file_name=os.path.basename(saved_file_path),
+            mime="text/x-python",
+            use_container_width=True,
+            key="download_py",
+        )
+
+    with dl_col2:
+        json_report = _generate_json_report(file_content, coverage)
+        json_name = os.path.basename(saved_file_path).replace(".py", ".json")
+        st.download_button(
+            label="📋 JSON Report",
+            data=json_report,
+            file_name=json_name,
+            mime="application/json",
+            use_container_width=True,
+            key="download_json",
+        )
+
+    with dl_col3:
+        html_report = _generate_html_report(file_content, coverage)
+        html_name = os.path.basename(saved_file_path).replace(".py", ".html")
+        st.download_button(
+            label="🌐 HTML Report",
+            data=html_report,
+            file_name=html_name,
+            mime="text/html",
+            use_container_width=True,
+            key="download_html",
+        )
 
     success, output = False, ""
 
@@ -441,6 +551,8 @@ _session_defaults: dict[str, object] = {
     "saved_test_path": None,  # absolute path to saved file on disk
     "test_filename": None,  # just the filename (no path)
     "last_generated_at": None,  # ISO timestamp of last save
+    "page_context": None,  # PageContext from last scrape
+    "scrape_duration_ms": 0,  # How long the last scrape took
 }
 
 
@@ -466,19 +578,34 @@ def display_logs() -> None:
 
 
 # ── Test Generation Logic ────────────────────────────────────────────────────
-def generate_test_for_story(prompt_text: str, base_url: str, llm_client: LLMClient) -> str:
+def generate_test_for_story(
+    prompt_text: str,
+    base_url: str,
+    llm_client: LLMClient,
+    page_context: PageContext | None = None,
+) -> str:
     """
     Generate a Playwright test from user story using the AI agent.
 
     Args:
-        prompt_text: User story text
-        base_url: Target website URL
-        llm_client: LLMClient instance
+        prompt_text:  User story text
+        base_url:     Target website URL
+        llm_client:   LLMClient instance
+        page_context: Optional scraped page context — injected into prompt
+                      when provided, generation falls back gracefully if None
 
     Returns:
         Generated test code as a string
     """
-    prompt = f"""You are an expert Playwright automation engineer. Generate a complete, runnable Playwright test for the following user story.
+    # Build context block — empty string if no context available
+    context_block = page_context.to_prompt_block() + "\n\n" if page_context else ""
+
+    # Extract and enumerate criteria for explicit LLM instruction
+    criteria = extract_criteria_from_user_story(prompt_text)
+    criteria_lines = "\n".join([f"  {i + 1}. {crit}" for i, crit in enumerate(criteria)])
+    criteria_count = len(criteria)
+
+    prompt = f"""{context_block}You are an expert Playwright automation engineer. Generate a complete, runnable Playwright test for the following user story.
 
 USER STORY:
 {prompt_text}
@@ -486,20 +613,29 @@ USER STORY:
 BASE URL:
 {base_url}
 
-Requirements:
-- Use Python and Playwright for web automation
-- Test should cover the main acceptance criteria from the user story
-- Include proper test structure with setup and teardown
-- Use descriptive test names
+ACCEPTANCE CRITERIA (explicitly enumerate — generate ONE test per criterion):
+{criteria_lines}
+(Total: {criteria_count} criteria)
+
+CRITICAL REQUIREMENT:
+- YOU MUST generate a SEPARATE test function for EACH of the {criteria_count} acceptance criteria listed above
+- Do NOT skip, combine, or omit any criteria
+- Each test function should be named test_<criterion_number>_<short_desc> (e.g., test_01_can_enter_driver_name)
+- The test function names must clearly correspond to the criterion number
+
+BASE REQUIREMENTS:
+- Use Python and Playwright sync API for web automation
+- Use pytest format: def test_name(page: Page):
+- Generate descriptive test names that reflect the criterion being tested
 - Include comments explaining each step
-- Handle dynamic content and loading states appropriately
 - Include assertions to validate expected outcomes
-- Make the test self-contained and runnable without modifications
+- DO NOT use async/await or asyncio
 
 IMPORTANT:
 - Return ONLY the Python code, no markdown formatting, no explanations
-- Use proper Playwright API calls
-- Handle potential exceptions gracefully
+- If PAGE CONTEXT is provided above, use ONLY the locators listed there
+- Do not invent selectors that are not in the PAGE CONTEXT
+- DO NOT skip the last criteria — all {criteria_count} criteria must have tests
 
 Generate the Playwright test code now:"""
 
@@ -679,9 +815,25 @@ def main() -> None:
     st.title("🎭 AI Playwright Test Generator")
     st.markdown("**Save • Review • Run** — Create Playwright tests from user stories in minutes")
 
+    # Fetch dynamic model list from ollama
+    _default_models = ["qwen3.5:35b", "qwen2.5-coder:1.5b-base", "qwen2.5:7b", "llama3.2"]
+    available_models = _default_models.copy()
+    try:
+        import subprocess
+
+        result = subprocess.run(["ollama", "list"], capture_output=True, text=True, timeout=3)
+        if result.returncode == 0:
+            lines = result.stdout.strip().splitlines()[1:]  # skip header
+            ollama_models = [line.split()[0] for line in lines if line.strip()]
+            if ollama_models:
+                available_models = ollama_models
+    except Exception:
+        pass
+
     # Setup LLM client
     with st.spinner("Initializing AI agent."):
-        llm_client = LLMClient()
+        # We'll re-init after the user selects a model inside the sidebar
+        pass
 
     # Create file path for logs
     log_file_path = Path("generated_tests") / "generation.log"
@@ -690,11 +842,15 @@ def main() -> None:
     # Sidebar
     with st.sidebar:
         st.markdown("### Configuration")
-        st.text_input(
-            "🔑 API Key (optional)",
-            type="password",
-            help="Leave blank to use environment variable or free tier",
+        selected_model = st.selectbox(
+            "🧠 LLM Model",
+            options=available_models,
+            index=0,
+            help="Models detected from your local Ollama installation.",
         )
+
+        # Initialize LLM client with the selected model
+        llm_client = LLMClient(model_name=str(selected_model))
         base_url = st.text_input(
             "🌐 Base URL",
             placeholder="https://example.com",
@@ -742,16 +898,33 @@ def main() -> None:
         st.session_state.saved_test_path = None
         st.session_state.test_filename = None
         st.session_state.last_generated_at = None
+        st.session_state.generated_test = None
+
+        # Scrape page context if URL provided
+        page_context: PageContext | None = None
+        if base_url:
+            with st.spinner("🔍 Scanning page for elements…"):
+                page_context, scrape_error = scrape_page_context(base_url)
+            if scrape_error:
+                st.warning(f"⚠️ {scrape_error}")
+                _log(f"Scraper: {scrape_error}", "warn")
+            else:
+                assert page_context is not None
+                _log(
+                    f"Scraped {page_context.element_count()} elements in {page_context.scrape_duration_ms}ms",
+                    "ok",
+                )
 
         # Generate test
-        test_code = generate_test_for_story(user_story, base_url, llm_client)
+        test_code = generate_test_for_story(user_story, base_url, llm_client, page_context)
 
         if test_code:
+            st.session_state.generated_test = test_code
+            st.session_state.last_story = user_story
             st.success("✅ Test generated successfully!")
             _log(f"Test generated: {len(test_code)} chars")
 
             # Phase A: Auto-save to disk
-            saved_path: str | None = None
             try:
                 saved_path = save_generated_test(
                     test_code=test_code,
@@ -766,74 +939,6 @@ def main() -> None:
             except Exception as e:
                 _log(f"Auto-save failed: {e}", "warn")
                 st.warning(f"⚠️ Auto-save failed: {e}")
-
-            # Phase A: Save & Rename UI
-            saved_path = st.session_state.saved_test_path
-            if saved_path:
-                filename = st.session_state.test_filename or saved_path
-                new_name_input: str | None = None
-
-                st.markdown("---")
-                st.markdown("#### 💾 Saved Test")
-                st.code(saved_path, language=None)
-
-                col1, col2 = st.columns([3, 1])
-                with col1:
-                    new_name_input = st.text_input(
-                        "Rename test file",
-                        value=filename if isinstance(filename, str) else "",
-                        key="rename_input",
-                        help="Edit the filename and click Rename. test_ prefix is enforced automatically.",
-                    )
-                with col2:
-                    st.markdown("<br>", unsafe_allow_html=True)
-                    if st.button("Rename", key="rename_btn", type="primary"):
-                        if new_name_input and saved_path:
-                            if Path(saved_path).exists():
-                                try:
-                                    new_path = rename_test_file(saved_path, new_name_input)
-                                    st.session_state.saved_test_path = new_path
-                                    st.session_state.test_filename = os.path.basename(new_path)
-                                    st.success(f"Renamed to: `{os.path.basename(new_path)}`")
-                                    st.rerun()
-                                except FileNotFoundError:
-                                    st.error("File no longer exists on disk. Please regenerate.")
-                                except Exception as e:
-                                    st.error(f"Rename failed: {e}")
-                            else:
-                                st.error("File not found on disk. Please regenerate.")
-
-            # Phase B: Coverage analysis
-            try:
-                test_functions, criteria = parse_test_file(test_code, user_story)
-                st.session_state.criteria_count = len(criteria)
-                st.session_state.parse_method = "ast"
-
-                if test_functions:
-                    coverage = map_tests_to_criteria(test_functions, criteria)
-                    display_coverage(coverage)
-
-                    # Phase C: Run button
-                    if saved_path:
-                        display_run_button(saved_path)
-
-                    # Display test code in tabs
-                    st.markdown("---")
-                    st.markdown("### 📋 Generated Test Code")
-                    tab1, tab2 = st.tabs(["🐍 Python Code", "📝 Preview"])
-
-                    with tab1:
-                        st.code(test_code, language="python")
-
-                    with tab2:
-                        st.markdown(test_code)
-                else:
-                    st.warning("⚠️ No test functions found in generated code")
-                    with st.expander("⚠️ Review Generated Code"):
-                        st.code(test_code, language="python")
-            except Exception as e:
-                st.error(f"Failed to analyze coverage: {e}")
-                _log(f"Coverage analysis error: {e}", "error")
         else:
             st.error("❌ Failed to generate test code")
             _log("Test generation failed", "error")
@@ -841,6 +946,80 @@ def main() -> None:
     elif generate_btn and not user_story:
         st.error("❌ Please enter a user story first")
         _log("Empty user story submitted", "error")
+
+    # ── Output section — rendered from session_state, persists across reruns ──
+    test_code = st.session_state.get("generated_test")
+    saved_path = st.session_state.get("saved_test_path")
+    story_for_coverage = st.session_state.get("last_story", "")
+
+    if test_code:
+        # Phase A: Save & Rename UI
+        if saved_path:
+            filename = st.session_state.test_filename or saved_path
+            new_name_input: str | None = None
+
+            st.markdown("---")
+            st.markdown("#### 💾 Saved Test")
+            st.code(saved_path, language=None)
+
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                new_name_input = st.text_input(
+                    "Rename test file",
+                    value=filename if isinstance(filename, str) else "",
+                    key="rename_input",
+                    help="Edit the filename and click Rename. test_ prefix is enforced automatically.",
+                )
+            with col2:
+                st.markdown("<br>", unsafe_allow_html=True)
+                if st.button("Rename", key="rename_btn", type="primary"):
+                    if new_name_input and saved_path:
+                        if Path(saved_path).exists():
+                            try:
+                                new_path = rename_test_file(saved_path, new_name_input)
+                                st.session_state.saved_test_path = new_path
+                                st.session_state.test_filename = os.path.basename(new_path)
+                                st.success(f"Renamed to: `{os.path.basename(new_path)}`")
+                                st.rerun()
+                            except FileNotFoundError:
+                                st.error("File no longer exists on disk. Please regenerate.")
+                            except Exception as e:
+                                st.error(f"Rename failed: {e}")
+                        else:
+                            st.error("File not found on disk. Please regenerate.")
+
+        # Phase B: Coverage analysis
+        try:
+            test_functions, criteria = parse_test_file(test_code, story_for_coverage)
+            st.session_state.criteria_count = len(criteria)
+            st.session_state.parse_method = "ast"
+
+            if test_functions:
+                coverage = map_tests_to_criteria(test_functions, criteria)
+                st.session_state.coverage_results = coverage
+                display_coverage(coverage)
+
+                # Phase C: Run button + Download
+                if saved_path:
+                    display_run_button(saved_path, test_code=test_code, coverage=coverage)
+
+                # Display test code in tabs
+                st.markdown("---")
+                st.markdown("### 📋 Generated Test Code")
+                tab1, tab2 = st.tabs(["🐍 Python Code", "📝 Preview"])
+
+                with tab1:
+                    st.code(test_code, language="python")
+
+                with tab2:
+                    st.markdown(test_code)
+            else:
+                st.warning("⚠️ No test functions found in generated code")
+                with st.expander("⚠️ Review Generated Code"):
+                    st.code(test_code, language="python")
+        except Exception as e:
+            st.error(f"Failed to analyze coverage: {e}")
+            _log(f"Coverage analysis error: {e}", "error")
 
     # Display logs in sidebar
     display_logs()
