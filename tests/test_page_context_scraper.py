@@ -161,7 +161,7 @@ class TestScrapePageContextErrorHandling:
         ctx, error = scrape_page_context("http://localhost:9999")
         assert ctx is None
         assert error is not None
-        assert "generating without page context" in error.lower()
+        assert "scraper subprocess failed" in error.lower()
 
     @patch("src.page_context_scraper.sync_playwright")
     def test_returns_none_and_message_on_connection_error(self, mock_pw: MagicMock) -> None:
