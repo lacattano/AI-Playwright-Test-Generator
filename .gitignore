@@ -35,7 +35,7 @@ ENV/
 .env.*.local
 
 # ── IDE ───────────────────────────────────────────────────────────────────────
-.vscode/
+!.vscode/settings.json
 .idea/
 *.swp
 *.swo
@@ -68,7 +68,6 @@ test-results/
 # ── Screenshots ───────────────────────────────────────────────────────────────
 screenshots/*
 !screenshots/.gitkeep
-*.png
-
+!assets/*.png
 # ── Generated Test Files ──────────────────────────────────────────────────────
 generated_tests/test_*.py

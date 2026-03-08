@@ -10,36 +10,6 @@ An AI-powered tool that generates Playwright Python test scripts using local LLM
 | Code Coverage | [![codecov](https://codecov.io/gh/lacattano/AI-Playwright-Test-Generator/branch/main/graph/badge.svg)](https://codecov.io/gh/lacattano/AI-Playwright-Test-Generator) |
 | Code Quality | [![ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff) |
 
-
----
-
-## Quick Start — UI Mode (Recommended for Non-Technical Users)
-
-The easiest way to use the tool. No command line knowledge needed after setup.
-
-```bash
-# 1. Install dependencies
-uv sync
-playwright install chromium
-
-# 2. Configure environment
-cp .env.example .env
-# Set OLLAMA_TIMEOUT=300 in .env
-
-# 3. Start Ollama (if not already running)
-ollama serve
-
-# 4. Launch the UI
-bash launch_ui.sh
-# Opens automatically at http://localhost:8501
-```
-
-Then:
-1. Enter your application URL in the sidebar
-2. Paste a user story or acceptance criteria into the text box
-3. Click **Generate Tests**
-4. Download the generated test and evidence reports
-
 ---
 
 ## What This Shows to Employers
@@ -49,7 +19,7 @@ This project demonstrates **modern QA automation and AI integration skills**:
 | Skill Area | Implementation |
 |------------|----------------|
 | **AI/ML Integration** | Ollama LLM API client with error handling and timeouts |
-| **Modern Python** | Type hints, async/await, pathlib, f-strings |
+| **Modern Python** | Type hints, dataclasses, pathlib, f-strings |
 | **Clean Architecture** | Modular design, separation of concerns |
 | **CLI Development** | argparse-based CLI with subcommands and structured output |
 | **Web Testing** | Playwright, Page Object Model, semantic selectors |
@@ -61,14 +31,13 @@ This project demonstrates **modern QA automation and AI integration skills**:
 
 ✅ **AI-Powered** - Generates tests from natural language descriptions  
 ✅ **Local LLM** - Runs entirely locally using Ollama (no API costs)  
-✅ **Modern Tests** - Async/await Playwright with Page Object Model  
+✅ **Modern Tests** - pytest sync Playwright with Page Object Model  
 ✅ **Docker Support** - Consistent, reproducible test environments  
 ✅ **Mock Infrastructure** - Built-in insurance portal for testing  
 ✅ **Screenshot Capture** - Automated test evidence collection  
 ✅ **CLI Tool** - Command-line interface with multiple output formats  
 ✅ **Multi-Format Reports** - Jira, HTML, Markdown, JSON, XML exports  
 ✅ **Pre-commit Hooks** - Automated linting and formatting with ruff  
-✅ **Streamlit UI** - Non-technical user interface for manual testers  
 
 ---
 
@@ -76,7 +45,7 @@ This project demonstrates **modern QA automation and AI integration skills**:
 
 - **AI-Powered Test Generation**: Generate Playwright tests from simple text descriptions
 - **Local LLM Support**: Runs entirely locally using Ollama (no API costs or data privacy concerns)
-- **Async Test Generation**: Creates modern async/await Playwright tests with screenshot capture
+- **Pytest Test Generation**: Creates pytest sync Playwright tests with screenshot capture
 - **Page Object Model (POM)**: Generated tests follow POM pattern with reusable page classes
 - **Mock Site Generation**: Includes a built-in mock insurance website for testing against
 - **Flexible Configuration**: Supports multiple LLM models with environment variables
@@ -118,7 +87,7 @@ This project demonstrates **modern QA automation and AI integration skills**:
    ```bash
    uv sync
    # or
-   pip install -r requirements.txt
+   # Note: use uv, not pip
    playwright install chromium
    ```
 
@@ -136,24 +105,48 @@ This project demonstrates **modern QA automation and AI integration skills**:
 **Windows (PowerShell):**
 ```powershell
 $env:OLLAMA_MODEL="qwen3.5:35b"
-$env:OLLAMA_TIMEOUT="120"
+$env:OLLAMA_TIMEOUT="300"
 ```
 
 **Windows (Command Prompt):**
 ```cmd
 set OLLAMA_MODEL=qwen3.5:35b
-set OLLAMA_TIMEOUT=120
+set OLLAMA_TIMEOUT=300
 ```
 
 **Linux/macOS:**
 ```bash
 export OLLAMA_MODEL=qwen3.5:35b
-export OLLAMA_TIMEOUT=120
+export OLLAMA_TIMEOUT=300
 ```
 
 ---
 
-## Usage
+## Quick Start — Streamlit UI (Recommended)
+
+The primary interface is a Streamlit web app for non-technical QA testers.
+
+```bash
+# Launch UI only (use your own target site)
+bash launch_ui.sh
+
+# Launch UI + mock insurance site (development/demo)
+bash launch_dev.sh
+```
+
+Then open http://localhost:8501 in your browser.
+
+**Workflow:**
+1. Enter a user story or acceptance criteria
+2. Set the base URL of the site to test
+3. Click **✨ Generate Test** — the scraper visits the URL and injects real selectors
+4. Review the coverage analysis
+5. Click **▶️ Run Now** to execute the test
+6. Download reports in Python, JSON, HTML, or Jira format
+
+---
+
+## CLI Usage
 
 ### Quick Start - Interactive Mode
 
@@ -286,12 +279,18 @@ The CLI generates multiple report formats automatically:
 ## Running Generated Tests
 
 ```bash
-# Run a specific test
-python generated_tests/test_20260301_143000_login_feature.py
+# Run a specific generated test
+pytest generated_tests/test_20260307_141729_my_test.py -v
 
-# Run with Playwright
-playwright test generated_tests/ --screenshot=on
+# Run with headed browser (see the browser)
+pytest generated_tests/test_my_test.py --headed -v
+
+# Run all unit tests for the tool itself
+pytest tests/ -v
 ```
+
+> **Note:** Generated tests require the target site to be running.
+> Use `bash launch_dev.sh` to start the mock site before running generated tests.
 
 ---
 
@@ -299,24 +298,31 @@ playwright test generated_tests/ --screenshot=on
 
 ```
 AI-Playwright-Test-Generator/
-├── README.md                    # This file
-├── pyproject.toml               # Project dependencies and configuration
-├── main.py                      # Legacy interactive CLI entry point
-├── cli/                         # New CLI module
-│   ├── main.py                 # CLI entry point with argparse
-│   ├── config.py               # Configuration classes and enums
-│   ├── input_parser.py         # Parse user stories and JSON input
-│   ├── story_analyzer.py       # Analyze test cases and complexity
-│   ├── test_orchestrator.py    # Generate Playwright test code
-│   ├── evidence_generator.py   # Generate test evidence
-│   └── report_generator.py     # Generate reports (Jira, HTML, Markdown, JSON)
-├── src/                         # Legacy module (still supported)
-│   ├── llm_client.py
-│   └── test_generator.py
-├── generated_tests/             # Generated test files and reports
+├── streamlit_app.py             # Streamlit UI (primary entry point)
+├── main.py                      # Interactive CLI entry point
+├── launch_ui.sh                 # Launch Streamlit UI only
+├── launch_dev.sh                # Launch UI + mock insurance site
+├── pyproject.toml               # Project dependencies (managed by uv)
+├── pytest.ini                   # Pytest configuration
+├── cli/                         # CLI module
+│   ├── main.py
+│   ├── config.py
+│   ├── input_parser.py
+│   ├── story_analyzer.py
+│   ├── test_orchestrator.py
+│   ├── evidence_generator.py
+│   └── report_generator.py
+├── src/                         # Core modules
+│   ├── llm_client.py            # ✅ PROTECTED — Ollama API client
+│   ├── test_generator.py        # ✅ PROTECTED — Test generation logic
+│   ├── file_utils.py            # Save, rename, normalise helpers
+│   └── page_context_scraper.py  # DOM scraper for real locator injection
+├── tests/                       # Unit tests for the tool itself
+├── generated_tests/             # Output: tests produced BY the tool
+│   └── mock_insurance_site.html # Mock test environment
 ├── screenshots/                 # Screenshot evidence
-├── .pre-commit-config.yaml      # Pre-commit hooks configuration
-└── requirements.txt
+├── docs/                        # Implementation specs
+└── .pre-commit-config.yaml      # ruff + ruff-format + mypy hooks
 ```
 
 ### CLI Module Components
@@ -435,7 +441,7 @@ ollama pull qwen3.5:35b
 
 ### Timeout Issues
 ```bash
-export OLLAMA_TIMEOUT=120
+export OLLAMA_TIMEOUT=300
 ```
 
 ### Generated Tests Need Locator Updates

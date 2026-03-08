@@ -728,11 +728,38 @@ Generate the Playwright test code now:"""
 
 
 # ── Main UI Layout ───────────────────────────────────────────────────────────
+def _display_url_clarity_message(base_url: str | None) -> None:
+    """Display clarity message about page scraping status based on URL input."""
+    if not base_url:
+        st.markdown(
+            """
+            <div class="status-box warn">
+                <strong>⚠️ Page Context Scraper Disabled</strong><br>
+                Without a base URL, the Page Context Scraper cannot scan the target page.
+                Tests will be generated using generic placeholders (e.g., example.com).<br>
+                <em>This mode is useful for planning and designing test cases without a specific target.</em>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            f"""
+            <div class="status-box success">
+                <strong>✅ Page Context Scraper Active</strong><br>
+                The scraper will attempt to scan the page at <code>{base_url}</code> to extract real DOM elements.<br>
+                <em>This enables generated tests to use actual selectors from the target site.</em>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
 def main() -> None:
     """Main application entry point."""
     st.set_page_config(
         page_title="AI Test Generator",
-        page_icon="🎭",
+        page_icon="logo.png",  # shows in browser tab
         layout="wide",
         initial_sidebar_state="expanded",
     )
@@ -916,6 +943,8 @@ def main() -> None:
 
     # Sidebar
     with st.sidebar:
+        st.image("logo.png", use_container_width=True)
+        st.divider()
         st.markdown("### Configuration")
         selected_model = st.selectbox(
             "🧠 LLM Model",
@@ -929,8 +958,12 @@ def main() -> None:
         base_url = st.text_input(
             "🌐 Base URL",
             placeholder="https://example.com",
-            help="The target website URL to test",
+            help="The target website URL to test. When empty, tests will use generic placeholders.",
         )
+
+        # Display clarity message based on URL input
+        _display_url_clarity_message(base_url if base_url else None)
+
         st.markdown("### Output")
         st.markdown("**Saved to:** `generated_tests/`")
 

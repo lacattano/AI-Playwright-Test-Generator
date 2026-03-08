@@ -55,7 +55,7 @@ def cmd_generate(args: argparse.Namespace, parser: argparse.ArgumentParser) -> i
 
     # Generate tests
     print("\n⚙️  Generating Tests...")
-    run_generation(parsed, args.output_dir)
+    run_generation(parsed, args.output_dir, args.url)
 
     # Generate evidence
     print("\n📸 Generating Evidence...")
@@ -104,14 +104,14 @@ def run_analysis(parsed: ParsedInput) -> AnalysisResult:
     return result
 
 
-def run_generation(parsed: ParsedInput, output_dir: str) -> None:
+def run_generation(parsed: ParsedInput, output_dir: str, url: str | None = None) -> None:
     """Generate Playwright tests."""
     from cli.test_orchestrator import TestCaseOrchestrator
 
     orchestrator = TestCaseOrchestrator()
     # Generate content for all test cases
     for case in parsed.test_cases:
-        orchestrator.process(case.description)
+        orchestrator.process(case.description, url=url)
 
     print(f"   Generated tests for {len(parsed.test_cases)} case(s)")
 
@@ -171,6 +171,7 @@ Examples:
     gen_parser.add_argument(
         "--evidence", action="store_true", default=True, help="Generate evidence files (default: true)"
     )
+    gen_parser.add_argument("--url", type=str, default=None, help="URL to capture page context for test generation")
     gen_parser.add_argument("--reports", type=str, default="all", help="Report format: all, jira, html, json, md")
 
     # Test command

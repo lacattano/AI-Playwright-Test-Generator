@@ -1,186 +1,172 @@
 # AI-Playwright-Test-Generator — Issues Found and Fixes
 
 ## Overview
-This document tracks issues identified and fixes applied. Issues are categorised by session.
+This document tracks issues identified in the `AI-Playwright-Test-Generator` repository
+and the fixes applied. Issues are categorised by type and include root cause analysis,
+solution implemented, and impact of each fix.
+
+> **Architecture note:** Issues 3 and 4 below were fixed in the pre-session-2 codebase
+> and reflect the original standalone async format. The project architecture was
+> subsequently decided (2026-03-03) to use **pytest sync format** exclusively.
+> Any references to async/await tests or "no pytest" as a fix are superseded.
+> See PROJECT_KNOWLEDGE.md — Architecture Decisions for the current standard.
 
 ---
 
-## Session 1 (2026-03-03)
+## Session 1-2 Issues (2026-03-01 to 2026-03-04)
 
-### 1. GitHub Actions CI/CD Badge ⚠️
-**Problem:** Badge not configured for renamed project  
-**Fix:** Updated repository reference in badge URL  
+### 1. GitHub Actions CI/CD Pipeline ⚠️
+**Problem:** CI/CD badge not properly configured for renamed project.
+**Fix:** Updated badge URL to reflect renamed repository.
+**Impact:** CI/CD status badge now displays correctly.
 
 ### 2. Path Calculation Problem ⚠️
-**Problem:** `Path(__file__).parent.parent` broke when running from different directories  
-**Fix:** Changed to `Path.cwd()` for consistent path resolution  
+**Problem:** Paths calculated incorrectly when running from different directories.
+**Fix:** Changed to `Path.cwd()` for consistent path resolution.
+**Impact:** Script runs correctly from any directory.
 
-### 3. Pytest Import in Generated Tests ⚠️
-**Problem:** LLM generated `import pytest` but tests were designed as standalone Playwright scripts  
-**Fix:** Updated prompt to explicitly say `DO NOT import pytest`  
+### 3. ~~Pytest Import in Generated Tests~~ ⚠️ SUPERSEDED
+**Original fix:** Told LLM not to import pytest (standalone async format).
+**Superseded by:** Architecture decision 2026-03-03 — project now uses pytest sync
+format exclusively. Generated tests must use pytest fixtures and sync API.
+See B-001 in BACKLOG.md for the corrective fix applied in session 3.
 
 ### 4. LLM Prompt Structure ⚠️
-**Problem:** Prompt too verbose, XML tags not respected by LLM  
-**Fix:** Restructured with clear numbered rules and explicit DO NOT instructions  
+**Problem:** Prompt too verbose, used XML tags LLM didn't respect.
+**Fix:** Restructured with clear numbered requirements and explicit DO NOT instructions.
+**Impact:** More consistent LLM output.
 
 ### 5. Markdown Code Fence Parsing ⚠️
-**Problem:** LLM wraps output in ` ```python ` fences, parser wasn't handling consistently  
-**Fix:** Enhanced `_extract_code()` to detect and strip fences reliably  
+**Problem:** LLM outputs markdown fences around generated code, parser handled inconsistently.
+**Fix:** Enhanced cleaning logic to detect and strip fences, auto-detect code block start.
+**Impact:** Generated files no longer contain markdown artifacts.
 
 ### 6. CLI Output Formatting ⚠️
-**Problem:** Minimal output, no visual hierarchy  
-**Fix:** Added emoji indicators, separator lines, clearer menus  
+**Problem:** CLI output minimal with no visual hierarchy.
+**Fix:** Added separator lines, emoji icons, clearer option menus.
+**Impact:** Improved developer UX.
 
 ### 7. CLI Module Architecture 🆕
-**Problem:** No proper CLI — only interactive menu  
-**Fix:** Built complete `argparse` CLI with `generate`, `test`, `help` subcommands  
+**Problem:** No proper CLI interface with argument parsing.
+**Fix:** Implemented complete CLI module with argparse, subcommands, config enums,
+modular components (InputParser, UserStoryAnalyzer, TestCaseOrchestrator, etc.)
+**Impact:** Tool supports both interactive and programmatic/CI usage.
 
 ### 8. Output Directory Argument Mismatch 🆕
-**Problem:** `--output` flag not mapped to `output_dir` parameter  
-**Fix:** Added `dest="output_dir"` to argparse definition  
+**Problem:** CLI parser used `--output` but handler expected `output_dir`.
+**Fix:** Used `dest="output_dir"` in argparse definition.
 
 ### 9. Report Format LOCAL Not Implemented 🆕
-**Problem:** `ReportFormat.LOCAL` enum defined but `_save_local()` not implemented  
-**Fix:** Implemented method generating JSON + XML  
+**Problem:** `ReportFormat.LOCAL` enum defined but `_save_local` not implemented.
+**Fix:** Implemented `_save_local` generating both JSON and XML reports.
 
 ### 10. Missing `parse_json` Method 🆕
-**Problem:** `InputParser` had no JSON parsing capability  
-**Fix:** Added `parse_json()` method  
+**Problem:** `InputParser` had no method to parse JSON-formatted input.
+**Fix:** Added `parse_json` method to handle JSON test case definitions.
 
 ### 11. Class Name Inconsistency 🆕
-**Problem:** `EvidenceGen` imported as `EvidenceGenerator`  
-**Fix:** Renamed class to `EvidenceGenerator`  
+**Problem:** Module imported `EvidenceGenerator` but class was named `EvidenceGen`.
+**Fix:** Consistent class naming throughout evidence generator module.
 
 ### 12. Pre-commit Configuration 🆕
-**Problem:** No automated linting before commits  
-**Fix:** Created `.pre-commit-config.yaml` with ruff lint + format hooks  
+**Problem:** No `.pre-commit-config.yaml` — no automated quality checks before commits.
+**Fix:** Created `.pre-commit-config.yaml` with ruff linting and ruff-format.
+**Impact:** Automated code quality checks run before every commit.
 
 ---
 
-## Session 2 (2026-03-05)
+## Session 3 Issues (2026-03-06)
 
-### 13. Virtual Environment Broken After Project Rename ⚠️
-**Problem:** `.venv` had hardcoded paths to old folder name (`vs projects`). `pip` not found. `(vs-projects)` shown instead of correct env name  
-**Root cause:** Project folder renamed from `vs projects` to `AI-Playwright-Test-Generator` — venv paths are absolute and don't survive renames  
-**Fix:**
-```bash
-rm -rf .venv
-uv sync
-source .venv/Scripts/activate
-playwright install chromium
-```
-**Impact:** venv rebuilt cleanly as `(playwright-test-generator)`  
-**Prevention:** Always rebuild venv after renaming project folder. Use `uv sync` not `pip install`
+### 13. Generated Tests Not Auto-Saved (B-003) ✅
+**Problem:** Tests only existed in browser session after generation, not on disk.
+**Fix:** Phase A — `save_generated_test()` in `src/file_utils.py`, called after every
+successful generation. Path and filename stored in session state.
 
----
+### 14. Import Newlines Collapsed (B-002) ✅
+**Problem:** LLM occasionally returned all imports on one line causing SyntaxError.
+**Fix:** `normalise_code_newlines()` in `src/file_utils.py`, applied after generation.
 
-### 14. `pip` Not Available — Wrong Package Manager ⚠️
-**Problem:** Scripts calling `pip install` fail with `pip: command not found`  
-**Root cause:** Project uses `uv` as package manager. `pip` is not on PATH  
-**Fix:** Updated `launch_ui.sh` to use `uv sync` and `uv run`. Added rule to always use `uv add <package>` instead of `pip install`  
-**Long term rule:** Never call `pip` directly in this project
+### 15. Async Tests Generated Instead of Pytest (B-001) ✅
+**Problem:** Despite architecture decision, LLM still generated async standalone tests.
+**Fix:** System prompt in `src/llm_client.py` updated. `generate_test_for_story()` prompt
+reinforced with explicit pytest format requirements and DO NOT async instructions.
 
----
+### 16. `launch_ui.sh` Started Mock Server (B-005) ✅
+**Problem:** `launch_ui.sh` started mock insurance site alongside UI — wrong for general use.
+**Fix:** Mock server startup moved to new `launch_dev.sh`. `launch_ui.sh` launches UI only.
 
-### 15. `streamlit_app.py` — Wrong `LLMClient` Constructor Arguments ⚠️
-**Problem:** `LLMClient(model=model_name)` threw `unexpected keyword argument 'model'`  
-**Root cause:** `LLMClient.__init__` uses `model_name` not `model`  
-**Fix:** Changed to `LLMClient(model_name=model_name)`
+### 17. Helper Functions in `streamlit_app.py` Untestable ⚠️
+**Problem:** Importing `streamlit_app` in tests triggers `st.set_page_config()` crash.
+**Fix (partial):** `save_generated_test`, `rename_test_file`, `normalise_code_newlines`
+moved to `src/file_utils.py`. Coverage helpers still in `streamlit_app.py` — tracked as AI-005.
+**Rule established:** All testable helper functions must live in `src/` not `streamlit_app.py`.
 
 ---
 
-### 16. `streamlit_app.py` — Wrong `TestGenerator` Usage ⚠️
-**Problem:** `TestGenerator(client=client)` — constructor doesn't take a `client` argument. `generator.generate()` method doesn't exist  
-**Root cause:** Streamlit app written assuming a different API than what's in the protected files  
-**Fix:** Changed to `TestGenerator(model_name=model_name)` and called `client.generate_test(user_request)` directly
+## Session 4 Issues (2026-03-07)
 
----
+### 18. Page Context Scraper — `sync_playwright` Not Patchable (AI-001) ✅
+**Problem:** `sync_playwright` imported inside function body, not at module level.
+`@patch("src.page_context_scraper.sync_playwright")` raised AttributeError in tests.
+**Fix:** Moved all playwright imports to top of `src/page_context_scraper.py`.
 
-### 17. `OLLAMA_TIMEOUT` Not Loading from `.env` ⚠️
-**Problem:** Pipeline log showed `Timeout: 60s` despite `OLLAMA_TIMEOUT=300` in `.env`. LLM kept timing out  
-**Root cause:** `load_dotenv()` called without explicit path — Streamlit's working directory differs from project root, so `.env` was not found  
-**Fix:**
-```python
-from pathlib import Path
-from dotenv import load_dotenv
-load_dotenv(dotenv_path=Path(__file__).parent / ".env")
-```
+### 19. Generated Tests Running in CI (pytest.ini) ✅
+**Problem:** `pytest.ini` had `testpaths = tests generated_tests`. Generated tests
+require a live server at `localhost:8080` — all failed in CI with `ERR_CONNECTION_REFUSED`.
+**Fix:** Removed `generated_tests` from `testpaths`. Generated tests run explicitly only.
 
----
+### 20. Coverage Mapping — All Criteria Mapped to test_01 ✅
+**Problem:** Keyword overlap matcher found `test_01_can_enter_driver_name` for TC-001,
+TC-002, and TC-003 because all share common words (driver, add, can).
+**Fix:** Number-based matching added before keyword fallback. TC-001 looks for `test_01_*`
+first, TC-002 looks for `test_02_*` first. Keyword matching only fires if no numbered
+match found.
 
-### 18. `streamlit_app.py` — `Path` Used Before Import ⚠️
-**Problem:** `NameError: name 'Path' is not defined` on startup  
-**Root cause:** `load_dotenv(dotenv_path=Path(...))` placed before `from pathlib import Path`  
-**Fix:** Added `from pathlib import Path` immediately before `load_dotenv` at top of file
+### 21. Run Output Lost on Download Button Click ✅
+**Problem:** `success` and `output` were local variables in `display_run_button()`,
+lost on every Streamlit rerun triggered by download button clicks.
+**Fix:** Run results persisted in `session_state.last_run_success` and
+`session_state.last_run_output`. Output section renders from session state.
 
----
+### 22. Jira Report Missing from Downloads ✅
+**Problem:** `report_jira` key existed in `_session_defaults` since Phase A but was
+never populated or surfaced in the UI. Gemini AI dropped the tab during the persistence
+fix and added JSON/HTML but not Jira.
+**Fix:** `_generate_jira_report()` added, called in output section with coverage data.
+4th download button added to `display_run_button()`.
 
-### 19. Model Dropdown Hardcoded with Non-Existent Models ⚠️
-**Problem:** Sidebar dropdown showed `qwen2.5:7b`, `qwen2.5:14b` etc. — none installed locally  
-**Root cause:** Options hardcoded at write time, not reflecting actual installed models  
-**Fix:** Dynamic population from `ollama list` on sidebar load, falls back to defaults if Ollama unreachable:
-```python
-result = subprocess.run(["ollama", "list"], capture_output=True, text=True, timeout=3)
-lines = result.stdout.strip().splitlines()[1:]
-ollama_models = [l.split()[0] for l in lines if l.strip()]
-```
+### 23. High Confidence Metric Misleading ✅
+**Problem:** Confidence hardcoded to 0.9 for any keyword match, making High Confidence %
+identical to Covered %. Metric provided no additional information.
+**Fix:** Replaced with Tests Generated count — total number of test functions linked
+across all criteria.
 
----
+### 24. `run_playwright_test()` Called Wrong Command ✅
+**Problem:** Function called `["playwright", "test", file_path]` (Node.js CLI) instead
+of `["pytest", file_path, "-v", "--tb=short"]`. Generated tests are pytest format.
+**Fix:** Command updated to use pytest.
 
-### 20. Mock Insurance Site — "Add Driver" Button Not Wired Up ⚠️
-**Problem:** "Add Driver" button on main policy page did nothing — no form appeared  
-**Root cause:** Button had no event listener and no form existed in the HTML  
-**Fix:** Added complete Add Driver form to `mock_insurance_site.html` with:
-- `aria-label="Driver Name"` on name input (matches `get_by_label`)
-- `aria-label="License Number"` on licence input
-- `aria-label="Add Driver"` on add button (matches `get_by_role("button", name=...)`)
-- `aria-label="Assigned Drivers"` on driver list (matches `get_by_role("list", name=...)`)
-- `aria-label="Save Vehicle"` on save button
-- `aria-label="Submitting"` on loading indicator
-- JavaScript to add drivers to list, enable Save button, show success message
+### 25. Git Hygiene — Tracked Files That Should Not Be ✅
+**Problem:** `generated_tests/test_*.py`, `coverage.xml`, `*.pyc` files committed to repo.
+**Fix:** Files removed with `git rm --cached`. `.gitignore` updated and reformatted
+with clear sections. `generated_tests/test_*.py` pattern added.
 
----
+### 26. Gemini AI Session — Multiple Issues Introduced
+**Problem:** Gemini AI implemented AI-001 without running the app end-to-end. Declared
+done before testing. Issues introduced:
+- Typos: `scrape_errror`, `ffailed`, `funcctions`, `Revieww` (runtime errors)
+- Wrong playwright command in `run_playwright_test()` (issue 24 above)
+- `sync_playwright` import inside function body (issue 18 above)
+- Missing Jira report (issue 22 above)
+- `coverage.xml` committed (issue 25 above)
+- Multiple mypy errors (`dict[str, None]`, `dict[str, str]`, missing type annotations)
 
-### 21. `test_happy_path.py` — Broken Custom Browser Fixture ⚠️
-**Problem:** Test defined custom `browser` fixture AND used `page: Page` parameter — two browser instances conflicting. Also had syntax error (all imports on one line)  
-**Root cause:** LLM generated class-style test with custom fixture, conflicting with pytest-playwright's built-in `page` fixture  
-**Fix:** Rewrote as clean pytest function using built-in `page: Page` fixture only:
-```python
-def test_main_flow(page: Page) -> None:
-    page.goto("http://localhost:8080")
-    page.fill('[data-testid="email"]', "...")
-```
-
----
-
-### 22. Ambiguous Locator — Two "Driver Name" Inputs ⚠️
-**Problem:** `strict mode violation: get_by_label("Driver Name") resolved to 2 elements`  
-**Root cause:** Vehicle update form has `id="driverName"` (Main Driver Name) AND add driver form has `aria-label="Driver Name"` — both match `get_by_label`  
-**Immediate fix:** Use `page.locator("#driverNameInput")` for the add driver form input  
-**Long term fix:** Page context scraper (see `FEATURE_SPEC_page_context_scraper.md`) will detect label ambiguity before generation  
-
----
-
-### 23. Generated Tests Not Saved to Disk ⚠️
-**Problem:** After generating via Streamlit, test only exists in browser session — not written to `generated_tests/`  
-**Root cause:** `streamlit_app.py` calls `client.generate_test()` directly, not `TestGenerator.generate_and_save()`  
-**Status:** Known issue, logged as BACKLOG B-003. Workaround: copy from UI tab and save manually  
-
----
-
-## Files Modified — Session 2
-
-| File | Changes |
-|------|---------|
-| `streamlit_app.py` | Built from scratch — Streamlit UI with pipeline, dynamic model list, URL validation, reports, downloads |
-| `launch_ui.sh` | Rewritten to use `uv run`, auto-start mock server |
-| `pytest.ini` | Added `--browser=chromium`, `--screenshot=only-on-failure`, `generated_tests` to testpaths |
-| `generated_tests/mock_insurance_site.html` | Added working Add Driver form with correct aria attributes |
-| `generated_tests/test_happy_path.py` | Rewrote with correct pytest-playwright format |
-| `.env` | Added `OLLAMA_TIMEOUT=300` |
-| `BACKLOG.md` | Created — all known issues and improvements |
-| `FEATURE_SPEC_page_context_scraper.md` | Created — full spec for Phase 2 scraper |
-| `PROJECT_KNOWLEDGE.md` | Updated — reflects session 2 state |
+**Lessons learned:**
+- Always run ruff, mypy, pytest before accepting AI-generated code
+- Review `git diff --staged --stat` before every commit
+- Never let an AI commit directly without human review
+- Give implementation AIs the full project rules, not just the spec doc
+- One feature per AI session — mixing tools mid-feature creates inconsistency
 
 ---
 
@@ -189,6 +175,7 @@ def test_main_flow(page: Page) -> None:
 | Version | Date | Changes |
 |---------|------|---------|
 | 1.0.0 | 2026-03-01 | Initial release with interactive CLI |
-| 1.1.0 | 2026-03-03 | CLI overhaul, report generation, multi-format support |
-| 1.2.0 | 2026-03-04 | Pre-commit configuration with ruff |
-| 1.3.0 | 2026-03-05 | Streamlit UI, venv rebuild, mock site Add Driver form, pytest.ini updates |
+| 1.1.0 | 2026-03-03 | CLI overhaul with argparse, report generation, multi-format support |
+| 1.2.0 | 2026-03-04 | Pre-commit configuration with ruff, automated code quality checks |
+| 1.3.0 | 2026-03-06 | Streamlit UI, Phase A/B/C (save/coverage/run), B-001/002/003/005 fixed |
+| 1.4.0 | 2026-03-07 | Page context scraper (AI-001), coverage mapping fix, Jira download, git hygiene |

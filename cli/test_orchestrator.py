@@ -43,13 +43,16 @@ class TestCaseOrchestrator:
         self.analyzer = UserStoryAnalyzer(self.analysis_mode)
         self.generated_files: list[str] = []
 
-    def process(self, raw_input: str, explicit_format: str | None = None) -> TestOrchestrationResult:
+    def process(
+        self, raw_input: str, explicit_format: str | None = None, url: str | None = None
+    ) -> TestOrchestrationResult:
         """
         Process user input through full orchestration pipeline.
 
         Args:
             raw_input: Raw user story or test case text
             explicit_format: Optional explicit format specification
+            url: Optional URL to capture page context for test generation
 
         Returns:
             TestOrchestrationResult with generated files and summary
@@ -69,8 +72,8 @@ class TestCaseOrchestrator:
             # Step 3: Order test cases by dependencies
             ordered_cases = self._order_test_cases(analysis_result.analyzed_test_cases)
 
-            # Step 4: Generate test files
-            test_files = self._generate_test_files(ordered_cases)
+            # Step 4: Generate test files (with optional page context)
+            test_files = self._generate_test_files(ordered_cases, url=url)
             result.generated_files = test_files
 
             # Step 5: Create summary
@@ -142,7 +145,7 @@ class TestCaseOrchestrator:
         scores = {"low": 1, "medium": 2, "high": 3}
         return scores.get(complexity, 2)
 
-    def _generate_test_files(self, cases: list[AnalyzedTestCase]) -> list[str]:
+    def _generate_test_files(self, cases: list[AnalyzedTestCase], url: str | None = None) -> list[str]:
         """Generate Playwright test files from analyzed test cases."""
         if not cases:
             return []
@@ -153,24 +156,49 @@ class TestCaseOrchestrator:
         # Create output directory if needed
         os.makedirs(output_dir, exist_ok=True)
 
-        # Group cases by test type for file organization
-        by_type: dict[str, list[AnalyzedTestCase]] = {}
-        for case in cases:
-            test_type = case.test_type or "general"
-            if test_type not in by_type:
-                by_type[test_type] = []
-            by_type[test_type].append(case)
+        # If URL provided, use TestGenerator with page context for each case
+        if url:
+            print(f"🌐 Using page context from: {url}")
+            from src.page_context_scraper import scrape_page_context
+            from src.test_generator import TestGenerator
 
-        # Generate file for each group
-        for test_type, type_cases in by_type.items():
-            filename = f"test_{test_type.lower().replace(' ', '_')}.py"
-            filepath = os.path.join(output_dir, filename)
+            # Scrape page context once
+            page_context, scrape_error = scrape_page_context(url)
+            if page_context:
+                print(f"✅ Successfully scraped {page_context.element_count()} interactive elements")
+                print(f"   Page title: {page_context.page_title}")
 
-            content = self._generate_test_content(test_type, type_cases)
-            with open(filepath, "w", encoding="utf-8") as f:
-                f.write(content)
+            # Generate tests for each case with page context
+            generator = TestGenerator(output_dir=output_dir)
+            for case in cases:
+                user_request = f"{case.title}\n{case.description}\nExpected: {case.expected_outcome}"
+                try:
+                    generator.generate_and_save(user_request, page_context)
+                    # Add the newly generated file from this iteration
+                    if generator.generated_files:
+                        generated.append(generator.generated_files[-1])
+                except Exception as e:
+                    print(f"⚠️  Warning: Failed to generate test for {case.title}: {e}")
+        else:
+            # Generate without page context using legacy method
+            # Group cases by test type for file organization
+            by_type: dict[str, list[AnalyzedTestCase]] = {}
+            for case in cases:
+                test_type = case.test_type or "general"
+                if test_type not in by_type:
+                    by_type[test_type] = []
+                by_type[test_type].append(case)
 
-            generated.append(filepath)
+            # Generate file for each group
+            for test_type, type_cases in by_type.items():
+                filename = f"test_{test_type.lower().replace(' ', '_')}.py"
+                filepath = os.path.join(output_dir, filename)
+
+                content = self._generate_test_content(test_type, type_cases)
+                with open(filepath, "w", encoding="utf-8") as f:
+                    f.write(content)
+
+                generated.append(filepath)
 
         self.generated_files = generated
         return generated

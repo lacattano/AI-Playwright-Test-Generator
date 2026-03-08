@@ -151,30 +151,27 @@ class TestPageContextToPromptBlock:
 
 
 class TestScrapePageContextErrorHandling:
-    @patch("src.page_context_scraper.sync_playwright")
-    def test_returns_none_and_message_on_timeout(self, mock_pw: MagicMock) -> None:
-        from playwright.sync_api import TimeoutError as PWTimeout
-
-        mock_pw.return_value.__enter__.return_value.chromium.launch.return_value.new_page.return_value.goto.side_effect = PWTimeout(
-            "timeout"
-        )
+    @patch("src.page_context_scraper.subprocess.run")
+    def test_returns_none_and_message_on_timeout(self, mock_subprocess: MagicMock) -> None:
+        mock_subprocess.return_value.returncode = 1
+        mock_subprocess.return_value.stderr = "Timed out connecting"
         ctx, error = scrape_page_context("http://localhost:9999")
         assert ctx is None
         assert error is not None
         assert "scraper subprocess failed" in error.lower()
 
-    @patch("src.page_context_scraper.sync_playwright")
-    def test_returns_none_and_message_on_connection_error(self, mock_pw: MagicMock) -> None:
-        mock_pw.return_value.__enter__.return_value.chromium.launch.return_value.new_page.return_value.goto.side_effect = Exception(
-            "Connection refused"
-        )
+    @patch("src.page_context_scraper.subprocess.run")
+    def test_returns_none_and_message_on_connection_error(self, mock_subprocess: MagicMock) -> None:
+        mock_subprocess.return_value.returncode = 1
+        mock_subprocess.return_value.stderr = "Connection refused"
         ctx, error = scrape_page_context("http://localhost:9999")
         assert ctx is None
         assert error is not None
 
-    @patch("src.page_context_scraper.sync_playwright")
-    def test_returns_none_on_unexpected_exception(self, mock_pw: MagicMock) -> None:
-        mock_pw.side_effect = Exception("Playwright not installed")
+    @patch("src.page_context_scraper.subprocess.run")
+    def test_returns_none_on_subprocess_error(self, mock_subprocess: MagicMock) -> None:
+        mock_subprocess.return_value.returncode = 1
+        mock_subprocess.return_value.stderr = "Playwright not installed"
         ctx, error = scrape_page_context("http://example.com")
         assert ctx is None
         assert error is not None
