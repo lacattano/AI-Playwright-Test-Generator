@@ -5,19 +5,31 @@ import re
 import subprocess
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 
 import streamlit as st
 
-from src.file_utils import (  # noqa: F401 (save_generated_test used in generate flow)
-    normalise_code_newlines,
-    save_generated_test,
-)
+from src.file_utils import rename_test_file, save_generated_test
+
+try:
+    from src.file_utils import normalise_code_newlines as _normalise
+except ImportError:
+
+    def _normalise(code: str) -> str:  # type: ignore[misc]
+        return code.replace("\r\n", "\n").replace("\r", "\n") if code else ""
+
+
+from dotenv import load_dotenv
+
 from src.llm_client import LLMClient  # noqa: F401
-from src.page_context_scraper import scrape_page_context  # noqa: F401
+from src.page_context_scraper import scrape_page_context
 from src.pytest_output_parser import RunResult, TestResult, parse_pytest_output
 from src.report_utils import generate_html_report as generate_standalone_html  # noqa: F401
 from src.report_utils import generate_jira_report, generate_local_report
 from src.test_generator import TestGenerator
+
+load_dotenv()
+
 
 # === Session State Defaults ===
 _session_defaults = {
@@ -31,6 +43,8 @@ _session_defaults = {
     "last_run_result": None,
     "coverage_analysis": {},
     "page_context": None,
+    "selected_model": "llama3.2",
+    "confirmed_paste": "",
 }
 
 
@@ -276,6 +290,23 @@ def _generate_html_report(coverage_analysis: dict | None = None, run_result: Run
     return "\n".join(html_parts)
 
 
+def _get_ollama_models() -> list[str]:
+    """Return list of locally available Ollama models by running 'ollama list'."""
+    try:
+        result = subprocess.run(
+            ["ollama", "list"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        lines = result.stdout.strip().splitlines()
+        # First line is header ("NAME  ID  SIZE  MODIFIED"), skip it
+        models = [line.split()[0] for line in lines[1:] if line.strip()]
+        return models if models else ["llama3.2"]
+    except Exception:
+        return ["llama3.2"]
+
+
 def escape_html(text: str) -> str:
     """Escape HTML special characters."""
     return text.replace("&", "&").replace("<", "<").replace(">", ">").replace('"', "&quot;").replace("'", "&#39;")
@@ -285,7 +316,15 @@ def _build_report_dicts(
     coverage_analysis: dict | None,
     run_result: RunResult | None,
 ) -> list[dict]:
-    """Convert RequirementCoverage + RunResult to the dict format used by report_utils."""
+    """Convert RequirementCoverage + RunResult to the dict format used by report_utils.
+
+    Args:
+        coverage_analysis: dict with "requirements" key containing RequirementCoverage list
+        run_result: RunResult from pytest parser, or None
+
+    Returns:
+        list of dicts with keys: test_name, status, duration, screenshots, error_message
+    """
     rows: list[dict] = []
 
     requirements = (coverage_analysis or {}).get("requirements", [])
@@ -302,11 +341,11 @@ def _build_report_dicts(
 
         if linked and run_result:
             for test_name in linked:
-                match: TestResult | None = run_map.get(test_name)
-                if match is not None:
-                    status = match.status
-                    duration = float(match.duration)
-                    error_message = match.error_message or ""
+                found = run_map.get(test_name)
+                if found is not None:
+                    status = found.status
+                    duration = float(found.duration)
+                    error_message = found.error_message or ""
                     break
         elif req.status in ("covered", "not_covered", "partial"):
             status = "pending"
@@ -404,13 +443,16 @@ def parse_feature_text(content: str) -> tuple[list[str], list[str]]:
         elif in_criteria_section:
             # Strip leading bullet/number markers for cleaner criteria text
             clean = stripped.lstrip("-•*").strip()
-            clean = re.sub(r"^\d+[.)]\s*", "", clean)
+            import re as _re
+
+            clean = _re.sub(r"^\d+[.)]\s*", "", clean)
             if clean:
                 acceptance_criteria_lines.append(clean)
 
     # Fallback: no headings found — treat everything as the user story
     if not user_story and not acceptance_criteria_lines:
         user_story = [line.strip() for line in lines if line.strip() and not line.strip().startswith("---")]
+
     return user_story, acceptance_criteria_lines
 
 
@@ -422,7 +464,22 @@ def main() -> None:
     st.markdown("---")
 
     # ── Input: file upload or paste ──────────────────────────────────────────
-    base_url = st.text_input("Base URL", value="http://localhost:3000")
+    base_url = st.text_input(
+        "Base URL",
+        value="https://",
+        help="Full URL including https:// — used for page scraping and test navigation",
+    )
+
+    # ── Sidebar — always visible ──────────────────────────────────────────────
+    st.sidebar.header("⚙️ Settings")
+    available_models = _get_ollama_models()
+    selected_model = st.sidebar.selectbox(
+        "LLM Model",
+        options=available_models,
+        index=0,
+        help="Local Ollama models available on your machine. Run 'ollama list' to see all.",
+    )
+    st.session_state.selected_model = selected_model
 
     tab_file, tab_text = st.tabs(["📄 Upload .md file", "✏️ Paste story"])
 
@@ -453,7 +510,10 @@ def main() -> None:
             ),
             key="pasted_text",
         )
-        if pasted.strip():
+        if st.session_state.get("confirmed_paste", "").strip():
+            content = st.session_state.confirmed_paste
+            st.success("✅ Story loaded — click **Generate Tests** below.")
+        elif pasted.strip():
             content = pasted
 
     if not content:
@@ -475,23 +535,6 @@ def main() -> None:
         )
         acceptance_criteria_lines = user_story
 
-    # Sidebar extras
-    st.sidebar.header("Test Execution Results")
-    test_results_file = st.sidebar.file_uploader(
-        "Upload Pytest Output (Optional, for advanced analysis)",
-        type=["txt", "md"],
-        key="test_output",
-    )
-    st.sidebar.file_uploader(
-        "Upload Page Model YAML (Optional, for page object patterns)",
-        type=["yaml", "yml"],
-        key="page_model",
-    )
-    if test_results_file is not None:
-        st.sidebar.markdown("#### Uploaded Test Results")
-        test_content = test_results_file.read().decode("utf-8")
-        st.sidebar.text_area("Pytest Output", test_content, height=300)
-
     user_story_text = "\n".join(user_story)
     acceptance_criteria_text = "\n".join(acceptance_criteria_lines)
     criteria_count = len(acceptance_criteria_lines)
@@ -508,9 +551,27 @@ def main() -> None:
             criteria=acceptance_criteria_text,
             count=criteria_count,
         )
-        prompt_template = """
+
+        # R-004: normalise URL and scrape page context
+        scrape_url = base_url.strip()
+        if scrape_url and not scrape_url.startswith(("http://", "https://")):
+            scrape_url = "https://" + scrape_url
+
+        page_context_block = ""
+        with st.spinner("🔍 Scraping page context from URL..."):
+            try:
+                ctx, scrape_err = scrape_page_context(scrape_url)
+                if ctx:
+                    page_context_block = ctx.to_prompt_block()
+                    st.sidebar.success(f"✅ Scraped {ctx.element_count()} elements from page")
+                elif scrape_err:
+                    st.sidebar.warning(f"⚠️ Scraper: {scrape_err[:120]}")
+            except Exception as e:
+                st.sidebar.warning(f"⚠️ Scraper failed: {e} — generating without page context")
+
+        prompt_template = f"""
 ### PAGE CONTEXT (If available):
-{page_context}
+{page_context_block}
 ### END PAGE CONTEXT
 
 ### GENERATION INSTRUCTIONS:
@@ -522,8 +583,10 @@ def main() -> None:
 
         with st.spinner("Generating Playwright tests..."):
             try:
-                generator = TestGenerator(page_url=None)
-                generated_code = normalise_code_newlines(generator.client.generate_test(full_prompt))
+                model = st.session_state.get("selected_model", "llama3.2")
+                generator = TestGenerator(page_url=None, model_name=model)
+                raw_response = generator.client.generate_test(full_prompt)
+                generated_code = _normalise(raw_response)
 
                 if generated_code:
                     saved_path = save_generated_test(
@@ -555,23 +618,28 @@ def main() -> None:
 
                     st.success(f"Tests Generated - saved to `{saved_path}`")
 
-                    tab1, tab2 = st.tabs(["Test Code", "Coverage"])
-                    with tab1:
-                        st.code(generated_code, language="python")
-                        st.download_button(
-                            label="Download Test File",
-                            data=generated_code,
-                            file_name=f"test_{base_url.split(':')[1].replace('/', '_').strip('_')}.py",
-                            mime="text/x-python",
-                            key="dl_py",
+                    # R-006: rename test file
+                    with st.expander("✏️ Rename test file"):
+                        new_name = st.text_input(
+                            "New filename (without .py)",
+                            value=Path(saved_path).stem,
+                            key="rename_input",
                         )
-                    with tab2:
-                        display_coverage(
-                            coverage_analysis=st.session_state.coverage_analysis,
-                            run_result=st.session_state.last_run_result,
-                        )
+                        if st.button("Rename", key="rename_btn"):
+                            try:
+                                new_path = rename_test_file(saved_path, new_name)
+                                st.session_state.saved_test_path = new_path
+                                st.success(f"Renamed to `{new_path}`")
+                            except Exception as rename_err:
+                                st.error(f"Rename failed: {rename_err}")
+
                 else:
-                    st.error("Failed to generate tests - the LLM returned an empty response.")
+                    st.error("❌ Failed to generate tests — the LLM returned an empty response.")
+                    with st.expander("🔍 Debug info"):
+                        st.write(f"**Model:** {model}")
+                        st.write(f"**Raw response type:** {type(raw_response)}")
+                        st.write(f"**Raw response value:** `{repr(raw_response)[:500]}`")
+                        st.write(f"**Prompt length:** {len(full_prompt)} chars")
 
             except Exception as e:
                 st.error(f"Error: {str(e)}")
@@ -579,6 +647,25 @@ def main() -> None:
 
                 with st.expander("Full traceback"):
                     st.code(traceback.format_exc(), language="plaintext")
+
+    # ── Always render generated code + coverage from session state ────────────
+    if st.session_state.get("generated_code") and st.session_state.get("saved_test_path"):
+        tab1, tab2 = st.tabs(["📝 Test Code", "📊 Coverage"])
+        with tab1:
+            st.code(st.session_state.generated_code, language="python")
+            url_slug = re.sub(r"[^\w]", "_", base_url).strip("_")
+            st.download_button(
+                label="⬇️ Download Test File",
+                data=st.session_state.generated_code,
+                file_name=f"test_{url_slug}.py",
+                mime="text/x-python",
+                key="dl_py",
+            )
+        with tab2:
+            display_coverage(
+                coverage_analysis=st.session_state.coverage_analysis,
+                run_result=st.session_state.last_run_result,
+            )
 
     if st.session_state.get("saved_test_path"):
         st.markdown("---")
