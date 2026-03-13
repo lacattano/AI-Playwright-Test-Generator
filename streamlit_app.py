@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Streamlit application for generating Playwright tests from feature specifications."""
 
+import html as _html
 import re
 import subprocess
-from dataclasses import dataclass
+import traceback
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 import streamlit as st
 
@@ -21,10 +23,11 @@ except ImportError:
 
 from dotenv import load_dotenv
 
-from src.llm_client import LLMClient  # noqa: F401
+from src.coverage_utils import build_coverage_analysis
+from src.llm_errors import LLMError, LLMErrorType, LLMResult
 from src.page_context_scraper import scrape_page_context
+from src.prompt_utils import get_streamlit_system_prompt_template
 from src.pytest_output_parser import RunResult, TestResult, parse_pytest_output
-from src.report_utils import generate_html_report as generate_standalone_html  # noqa: F401
 from src.report_utils import generate_jira_report, generate_local_report
 from src.test_generator import TestGenerator
 
@@ -53,24 +56,6 @@ def init_session_state() -> None:
     for key, value in _session_defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
-
-
-@dataclass
-class RequirementCoverage:
-    """Track coverage for a single requirement."""
-
-    id: str
-    description: str
-    status: str  # "not_covered", "covered", "partial"
-    linked_tests: list  # List of test names that cover this requirement
-
-    def to_dict(self) -> dict:
-        return {
-            "id": self.id,
-            "description": self.description,
-            "status": self.status,
-            "linked_tests": self.linked_tests,
-        }
 
 
 def display_run_button() -> None:
@@ -137,7 +122,7 @@ def display_run_button() -> None:
             st.code(run_result.raw_output, language="plaintext")
 
 
-def display_coverage(coverage_analysis: dict | None = None, run_result: RunResult | None = None) -> None:
+def display_coverage(coverage_analysis: dict[str, Any] | None = None, run_result: RunResult | None = None) -> None:
     """Display the coverage analysis table with optional test results integration."""
 
     if coverage_analysis is None or not coverage_analysis.get("requirements"):
@@ -309,7 +294,7 @@ def _get_ollama_models() -> list[str]:
 
 def escape_html(text: str) -> str:
     """Escape HTML special characters."""
-    return text.replace("&", "&").replace("<", "<").replace(">", ">").replace('"', "&quot;").replace("'", "&#39;")
+    return _html.escape(text, quote=True)
 
 
 def _build_report_dicts(
@@ -365,36 +350,7 @@ def _build_report_dicts(
 
 def get_system_prompt() -> str:
     """Return the system prompt template for test generation."""
-    return """You are an expert Playwright automation engineer. Generate a complete, runnable Playwright test for the following user story and acceptance criteria.
-
-USER STORY:
-{user_story}
-
-ACCEPTANCE CRITERIA (enumerate them explicitly - generate ONE test per criterion):
-{criteria}
-(Total: {count} criteria)
-
-CRITICAL REQUIREMENT:
-- YOU MUST generate a SEPARATE test function for EACH of the {count} acceptance criteria listed above
-- Do NOT skip, combine, or omit any criteria
-- Each test function should be named test_<criterion_number>_<short_desc> (e.g., test_01_can_enter_driver_name)
-- The test function names must clearly correspond to the criterion number
-
-BASE REQUIREMENTS:
-- Use Python and Playwright sync API for web automation
-- Use pytest format: def test_name(page: Page):
-- Generate descriptive test names that reflect the criterion being tested
-- Include comments explaining each step
-- Include assertions to validate expected outcomes
-- DO NOT use async/await or asyncio
-
-IMPORTANT:
-- Return ONLY the Python code, no markdown formatting, no explanations
-- If PAGE CONTEXT is provided above, use ONLY the locators listed there
-- Do not invent selectors that are not in the PAGE CONTEXT
-- DO NOT skip the last criteria - all {count} criteria must have tests
-
-Generate the Playwright test code now:"""
+    return get_streamlit_system_prompt_template()
 
 
 def parse_feature_text(content: str) -> tuple[list[str], list[str]]:
@@ -443,9 +399,7 @@ def parse_feature_text(content: str) -> tuple[list[str], list[str]]:
         elif in_criteria_section:
             # Strip leading bullet/number markers for cleaner criteria text
             clean = stripped.lstrip("-•*").strip()
-            import re as _re
-
-            clean = _re.sub(r"^\d+[.)]\s*", "", clean)
+            clean = re.sub(r"^\d+[.)]\s*", "", clean)
             if clean:
                 acceptance_criteria_lines.append(clean)
 
@@ -588,33 +542,32 @@ def main() -> None:
                 raw_response = generator.client.generate_test(full_prompt)
                 generated_code = _normalise(raw_response)
 
-                if generated_code:
+                llm_result = (
+                    LLMResult(code=generated_code)
+                    if generated_code
+                    else LLMResult(
+                        code=None,
+                        error=LLMError(
+                            error_type=LLMErrorType.EMPTY_RESPONSE,
+                            message="The LLM returned an empty response. "
+                            "Check that Ollama is running and OLLAMA_TIMEOUT is high enough (recommended: 300).",
+                        ),
+                    )
+                )
+
+                if llm_result.code:
                     saved_path = save_generated_test(
-                        test_code=generated_code,
+                        test_code=llm_result.code,
                         story_text=user_story_text,
                         base_url=base_url,
                     )
-                    st.session_state.generated_code = generated_code
+                    st.session_state.generated_code = llm_result.code
                     st.session_state.saved_test_path = saved_path
 
-                    test_names = re.findall(r"^def (test_\w+)", generated_code, re.MULTILINE)
-                    requirements = []
-                    for i, criterion in enumerate(acceptance_criteria_lines, 1):
-                        req_id = f"TC-{i:03}"
-                        num_str = f"{i:02}"
-                        linked = [n for n in test_names if f"test_{num_str}_" in n or f"test_{i}_" in n]
-                        if not linked:
-                            words = set(criterion.lower().split())
-                            linked = [n for n in test_names if len(words & set(n.lower().split("_"))) >= 2]
-                        requirements.append(
-                            RequirementCoverage(
-                                id=req_id,
-                                description=criterion,
-                                status="covered" if linked else "not_covered",
-                                linked_tests=linked,
-                            )
-                        )
-                    st.session_state.coverage_analysis = {"requirements": requirements}
+                    st.session_state.coverage_analysis = build_coverage_analysis(
+                        acceptance_criteria_lines=acceptance_criteria_lines,
+                        generated_code=llm_result.code,
+                    )
 
                     st.success(f"Tests Generated - saved to `{saved_path}`")
 
@@ -634,7 +587,12 @@ def main() -> None:
                                 st.error(f"Rename failed: {rename_err}")
 
                 else:
-                    st.error("❌ Failed to generate tests — the LLM returned an empty response.")
+                    message = (
+                        llm_result.error.message
+                        if llm_result.error is not None
+                        else "Failed to generate tests due to an unknown LLM error."
+                    )
+                    st.error(f"❌ {message}")
                     with st.expander("🔍 Debug info"):
                         st.write(f"**Model:** {model}")
                         st.write(f"**Raw response type:** {type(raw_response)}")
@@ -643,8 +601,6 @@ def main() -> None:
 
             except Exception as e:
                 st.error(f"Error: {str(e)}")
-                import traceback
-
                 with st.expander("Full traceback"):
                     st.code(traceback.format_exc(), language="plaintext")
 

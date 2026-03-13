@@ -6,17 +6,12 @@ import subprocess
 import sys
 from pathlib import Path
 
-from ollama import chat  # Ensure you have ollama installed: pip install ollama
+from src.test_generator import TestGenerator
 
-# Use OLLAMA_MODEL env var or default to 'qwen3.5:35b'
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3.5:35b")
-
-# Generated tests directory - using relative path from current working directory
 GENERATED_TESTS_DIR = Path.cwd() / "generated_tests"
-
-# Mock site configuration
-MOCK_SITE_DIR = Path.cwd() / "generated_tests"
+MOCK_SITE_DIR = GENERATED_TESTS_DIR
 MOCK_SITE_PORT = 8080
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen3.5:35b")
 
 # Initialize the client (implicitly used via the chat function in python-ollama)
 # If you need explicit client management, you can do:
@@ -84,109 +79,12 @@ def save_generated_test(feature_name: str, code: str, base_dir: Path) -> Path | 
 
 
 def generate_playwright_tests(feature_name: str) -> str:
-    """Generate Playwright test code using Ollama with improved prompt for standalone tests."""
-    slugified = slugify(feature_name)
-
-    prompt = f"""
-You are a Senior QA Automation Engineer and an expert in Playwright.
-
-Generate a standalone Playwright test for this feature:
-
-<feature>
-{feature_name}
-</feature>
-
-Generate Python code with these requirements:
-
-1. ONLY use `from playwright.sync_api import Page, expect` - DO NOT import pytest.
-   - The test will run standalone or with Playwright's built-in runner.
-
-2. Use the Page Object Model (POM) pattern:
-   - Create a page class for the feature (e.g., class LoginPage)
-   - Use semantic locators: get_by_role, get_by_label, get_by_text
-   - Include methods for user actions
-
-3. Include these test cases:
-   - A main test function: def test_{slugified}(page: Page)
-   - Happy path (valid data)
-   - Edge cases: empty fields, invalid input, network errors
-
-4. Use Playwright assertions:
-   - expect().to_be_visible()
-   - expect().to_have_text()
-   - expect().to_have_value()
-   - expect().to_be_disabled()
-
-5. Handle network interactions:
-   - Use page.route() for API mocking
-   - Set default timeouts with page.set_default_timeout()
-
-6. Output ONLY the Python code - no markdown, no explanations, no ```python fences.
-
-Example structure:
-```
-from playwright.sync_api import Page, expect
-
-class SomePage:
-    def __init__(self, page: Page):
-        self.page = page
-        self.button = page.get_by_role("button", name="Submit")
-
-    def fill_form(self, name: str):
-        self.input.fill(name)
-
-def test_feature_name(page: Page):
-    page.goto("https://example.com")
-    page.set_default_timeout(30000)
-
-    # Test steps here
-    expect(self.page.get_by_text("Success")).to_be_visible()
-```
-
-Now generate the code for: {feature_name}
-"""
-
-    try:
-        # Using python-ollama's chat function directly
-        response = chat(model=OLLAMA_MODEL, messages=[{"role": "user", "content": prompt}])
-        # Extract the content from the response
-        code = response["message"]["content"]
-
-        # Clean up markdown code fences and conversational filler
-        lines = code.split("\n")
-        cleaned_lines = []
-        inside_code_block = False
-
-        for line in lines:
-            # Skip markdown code fence indicators
-            if line.strip() in ["```python", "```", "``"]:
-                inside_code_block = not inside_code_block
-                continue
-            # Skip lines that are part of conversational filler before/after code
-            stripped = line.strip()
-            if not inside_code_block and stripped:
-                # Look for code-like content
-                if (
-                    stripped.startswith("def test_")
-                    or stripped.startswith("from ")
-                    or stripped.startswith("import ")
-                    or stripped == '"""'
-                ):
-                    inside_code_block = True
-                    cleaned_lines.append(line)
-            elif inside_code_block:
-                cleaned_lines.append(line)
-
-        # Join and strip extra whitespace
-        code = "\n".join(cleaned_lines).strip()
-
-        # Remove any remaining ``` at the end
-        code = re.sub(r"`{2,3}$", "", code, flags=re.MULTILINE)
-        code = re.sub(r"^`{2,3}", "", code, flags=re.MULTILINE)
-
-        return code
-    except Exception as e:
-        return f"Error generating Playwright tests: {e}"
+    """Generate Playwright pytest tests using the shared TestGenerator pipeline."""
+    generator = TestGenerator()
+    request = f"Generate Playwright pytest tests for feature: {feature_name}"
+    path = generator.generate_and_save(request)
+    with open(path, encoding="utf-8") as f:
+        return f.read()
 
 
 def start_mock_server(port: int = MOCK_SITE_PORT) -> None:

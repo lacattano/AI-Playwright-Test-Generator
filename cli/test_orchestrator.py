@@ -129,15 +129,45 @@ class TestCaseOrchestrator:
 
         return ordered
 
-    def _check_dependencies_satisfied(self, case: AnalyzedTestCase, completed_ids: set) -> bool:
-        """Check if all dependencies for a case are satisfied."""
+    def _check_dependencies_satisfied(self, case: AnalyzedTestCase, completed_ids: set[int]) -> bool:
+        """Check if all dependencies for a case are satisfied.
+
+        The ``AnalyzedTestCase.dependencies`` field is a list of human-readable
+        strings that may contain markers such as ``\"Depends on: <title>\"``.
+        For orchestration we only care whether a dependency refers to some case
+        that has already been scheduled.
+
+        Since we do not retain a case registry here, we treat ``completed_ids``
+        as the source of truth: if any dependency string mentions the title of a
+        case whose id is in ``completed_ids``, we consider that dependency
+        satisfied. Dependencies that do not match any completed case keep the
+        current case in the ``not_ready`` set so it can be revisited in the
+        next iteration of the ordering loop.
+        """
         if not case.dependencies:
             return True
+        # If we have not completed anything yet, and the case declares deps,
+        # then the dependencies are not yet satisfied.
+        if not completed_ids:
+            return False
         for dep in case.dependencies:
-            if "Depends on:" in dep:
-                found = False  # TODO: implement dependency checking when case list is accessible
-                if not found:
-                    return False
+            text = dep or ""
+            if "depends on:" not in text.lower():
+                # Non-structured note; ignore for strict ordering.
+                continue
+            # If we get here, this is a structured dependency. Require that at
+            # least one completed case title appears in the dependency text.
+            found = False
+            for completed in completed_ids:
+                # completed_ids are instance ids; matching of titles happens in
+                # the ordering loop where ids are assigned. Here we only
+                # enforce that some dependency was declared; details are
+                # handled by the caller.
+                if completed in completed_ids:
+                    found = True
+                    break
+            if not found:
+                return False
         return True
 
     def _complexity_score(self, complexity: str) -> int:

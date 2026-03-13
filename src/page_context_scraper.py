@@ -162,11 +162,14 @@ class PageContext:
 def _build_recommended_locator(el_tag: str, el: dict[str, str | None]) -> str:
     """
     Build the best Playwright locator for an element based on priority:
-      1. data-testid  → page.get_by_test_id("x")
-      2. aria-label   → page.get_by_role("button", name="x")
-      3. id           → page.locator("#x")
-      4. name         → page.locator("[name='x']")
-      5. visible text → page.get_by_text("x")    ← least preferred
+      1. data-testid  → page.get_by_test_id("x")             (most explicit)
+      2. id           → page.locator("#x")
+      3. name         → page.locator("[name='x']")
+      4. aria-label   → page.get_by_role("button", name="x") / page.get_by_label("x")
+      5. visible text → page.get_by_text("x")                (least preferred)
+
+    test_id is ranked above element_id to align with Playwright's recommended
+    testing philosophy: dedicated test hooks are more stable than incidental IDs.
 
     Args:
         el_tag: HTML tag name (input, button, a, etc.)
@@ -175,16 +178,19 @@ def _build_recommended_locator(el_tag: str, el: dict[str, str | None]) -> str:
     Returns:
         Playwright locator string
     """
+    # Prefer test IDs over IDs when both are available to align with
+    # Playwright's recommended patterns, but fall back to IDs when no
+    # dedicated test hook exists.
     if el.get("test_id"):
         return f'page.get_by_test_id("{el["test_id"]}")'
-    if el.get("label"):
-        if el_tag in ("button", "a", "input", "select", "textarea"):
-            return f'page.get_by_role("{el_tag}", name="{el["label"]}")'
-        return f'page.get_by_label("{el["label"]}")'
     if el.get("element_id"):
         return f'page.locator("#{el["element_id"]}")'
     if el.get("name"):
         return f"page.locator(\"[name='{el['name']}']\")"
+    if el.get("label"):
+        if el_tag in ("button", "a", "input", "select", "textarea"):
+            return f'page.get_by_role("{el_tag}", name="{el["label"]}")'
+        return f'page.get_by_label("{el["label"]}")'
     if el.get("visible_text"):
         return f'page.get_by_text("{el["visible_text"]}")'
     return f'page.locator("{el_tag}")'
@@ -246,6 +252,13 @@ def _run_playwright_scraper_process(url: str, timeout_ms: int) -> tuple[PageCont
     NOTE: Do NOT set WindowsSelectorEventLoopPolicy here!
     SelectorEventLoop does not support _make_subprocess_transport on Windows,
     which Playwright needs to launch the browser. The default ProactorEventLoop
+
+    NOTE ON METADATA: ``scraped_at`` and ``scrape_duration_ms`` are intentionally
+    left at their zero/empty defaults when this function serialises the context via
+    ``to_dict()`` in the ``__main__`` block.  The parent process (``scrape_page_context``)
+    sets both fields after deserialising the JSON result, where it has access to the
+    wall-clock start time.  Do not "fix" this by setting them inside the subprocess —
+    the subprocess has no reliable way to measure end-to-end latency including IPC.
     works correctly in a clean subprocess (main thread).
     """
     try:

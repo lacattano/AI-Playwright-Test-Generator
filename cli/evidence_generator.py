@@ -13,6 +13,10 @@ import os
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Any
+
+from cli.config import CaptureLevel, ScreenshotNaming, config
+from cli.story_analyzer import AnalyzedTestCase
 
 try:
     from PIL import Image
@@ -20,12 +24,7 @@ try:
     PIL_AVAILABLE = True
 except ImportError:
     PIL_AVAILABLE = False
-    Image = None
-
-from typing import Any
-
-from cli.config import CaptureLevel, ScreenshotNaming, config
-from cli.story_analyzer import AnalyzedTestCase
+    Image: Any = None  # type: ignore[no-redef]
 
 
 @dataclass

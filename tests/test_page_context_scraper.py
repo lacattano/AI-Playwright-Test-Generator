@@ -30,30 +30,18 @@ class TestBuildRecommendedLocator:
         }
         assert _build_recommended_locator("button", el) == 'page.get_by_test_id("submit-btn")'
 
-    def test_prefers_label_over_id(self) -> None:
+    def test_prefers_id_over_label(self) -> None:
         el: dict[str, str | None] = {
+            "element_id": "driverNameInput",
             "test_id": None,
             "label": "Driver Name",
-            "element_id": "driverNameInput",
             "name": None,
             "visible_text": None,
             "input_type": None,
             "placeholder": None,
         }
         result = _build_recommended_locator("input", el)
-        assert 'get_by_role("input", name="Driver Name")' in result
-
-    def test_falls_back_to_id(self) -> None:
-        el: dict[str, str | None] = {
-            "test_id": None,
-            "label": None,
-            "element_id": "driverNameInput",
-            "name": None,
-            "visible_text": None,
-            "input_type": None,
-            "placeholder": None,
-        }
-        assert _build_recommended_locator("input", el) == 'page.locator("#driverNameInput")'
+        assert result == 'page.locator("#driverNameInput")'
 
     def test_falls_back_to_name(self) -> None:
         el: dict[str, str | None] = {
