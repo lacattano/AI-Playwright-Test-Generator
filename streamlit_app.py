@@ -8,8 +8,15 @@ from datetime import datetime
 
 import streamlit as st
 
-from src.file_utils import save_generated_test
-from src.pytest_output_parser import RunResult, parse_pytest_output
+from src.file_utils import (  # noqa: F401 (save_generated_test used in generate flow)
+    normalise_code_newlines,
+    save_generated_test,
+)
+from src.llm_client import LLMClient  # noqa: F401
+from src.page_context_scraper import scrape_page_context  # noqa: F401
+from src.pytest_output_parser import RunResult, TestResult, parse_pytest_output
+from src.report_utils import generate_html_report as generate_standalone_html  # noqa: F401
+from src.report_utils import generate_jira_report, generate_local_report
 from src.test_generator import TestGenerator
 
 # === Session State Defaults ===
@@ -274,6 +281,49 @@ def escape_html(text: str) -> str:
     return text.replace("&", "&").replace("<", "<").replace(">", ">").replace('"', "&quot;").replace("'", "&#39;")
 
 
+def _build_report_dicts(
+    coverage_analysis: dict | None,
+    run_result: RunResult | None,
+) -> list[dict]:
+    """Convert RequirementCoverage + RunResult to the dict format used by report_utils."""
+    rows: list[dict] = []
+
+    requirements = (coverage_analysis or {}).get("requirements", [])
+    run_map: dict[str, TestResult] = {}
+    if run_result:
+        for tr in run_result.results:
+            run_map[tr.name] = tr
+
+    for req in requirements:
+        linked: list[str] = getattr(req, "linked_tests", []) or []
+        status = "unknown"
+        duration = 0.0
+        error_message = ""
+
+        if linked and run_result:
+            for test_name in linked:
+                match: TestResult | None = run_map.get(test_name)
+                if match is not None:
+                    status = match.status
+                    duration = float(match.duration)
+                    error_message = match.error_message or ""
+                    break
+        elif req.status in ("covered", "not_covered", "partial"):
+            status = "pending"
+
+        rows.append(
+            {
+                "test_name": f"{req.id}: {req.description[:80]}",
+                "status": status,
+                "duration": duration,
+                "screenshots": [],
+                "error_message": error_message,
+            }
+        )
+
+    return rows
+
+
 def get_system_prompt() -> str:
     """Return the system prompt template for test generation."""
     return """You are an expert Playwright automation engineer. Generate a complete, runnable Playwright test for the following user story and acceptance criteria.
@@ -308,6 +358,62 @@ IMPORTANT:
 Generate the Playwright test code now:"""
 
 
+def parse_feature_text(content: str) -> tuple[list[str], list[str]]:
+    """
+    Parse a feature specification string into user story lines and
+    acceptance criteria lines.
+
+    Handles:
+    - Structured markdown with ## headings
+    - Plain text with no headings (whole block treated as story)
+    - Mixed/informal input
+
+    Returns:
+        Tuple of (user_story_lines, acceptance_criteria_lines)
+    """
+    lines = content.split("\n")
+    user_story: list[str] = []
+    acceptance_criteria_lines: list[str] = []
+    in_story_section = False
+    in_criteria_section = False
+
+    for line in lines:
+        stripped = line.strip()
+        stripped_lower = stripped.lower()
+
+        # Detect section headings — handle ##, #, plain text variants
+        # Check BEFORE skipping # lines so "## User Story" is caught
+        if "user story" in stripped_lower:
+            in_story_section = True
+            in_criteria_section = False
+            continue
+
+        if "acceptance criteria" in stripped_lower:
+            in_criteria_section = True
+            in_story_section = False
+            continue
+
+        # Skip empty lines and markdown dividers
+        if not stripped or stripped.startswith("---"):
+            continue
+
+        if in_story_section:
+            # Skip lines that are just heading markers
+            if not stripped.startswith("#"):
+                user_story.append(stripped)
+        elif in_criteria_section:
+            # Strip leading bullet/number markers for cleaner criteria text
+            clean = stripped.lstrip("-•*").strip()
+            clean = re.sub(r"^\d+[.)]\s*", "", clean)
+            if clean:
+                acceptance_criteria_lines.append(clean)
+
+    # Fallback: no headings found — treat everything as the user story
+    if not user_story and not acceptance_criteria_lines:
+        user_story = [line.strip() for line in lines if line.strip() and not line.strip().startswith("---")]
+    return user_story, acceptance_criteria_lines
+
+
 def main() -> None:
     """Main function to run the Streamlit application."""
     st.set_page_config(page_title="AI Test Generator", page_icon="🤖", layout="wide")
@@ -315,190 +421,217 @@ def main() -> None:
     st.title("🤖 AI-Powered Playwright Test Generator")
     st.markdown("---")
 
-    col1, col2 = st.columns(2)
-    with col1:
-        feature_spec_file = st.file_uploader("Upload Feature Specification (MD)", type=["md"])
-    with col2:
-        base_url = st.text_input("Base URL", value="http://localhost:3000")
+    # ── Input: file upload or paste ──────────────────────────────────────────
+    base_url = st.text_input("Base URL", value="http://localhost:3000")
 
-    if feature_spec_file is not None:
-        content = feature_spec_file.read().decode("utf-8")
-        st.markdown("#### Uploaded Feature Specification")
-        st.markdown(content)
+    tab_file, tab_text = st.tabs(["📄 Upload .md file", "✏️ Paste story"])
 
-        # Parse the uploaded file
-        lines = content.split("\n")
-        user_story = []
-        acceptance_criteria_lines = []
-        in_story_section = False
-        in_criteria_section = False
+    content: str = ""
 
-        for _i, line in enumerate(lines):
-            stripped_line = line.strip().lower()
-
-            if "user story" in stripped_line or "= user story" in stripped_line:
-                in_story_section = True
-                in_criteria_section = False
-                continue
-
-            if stripped_line.startswith("acceptance criteria") or "= acceptance criteria" in stripped_line:
-                in_criteria_section = True
-                in_story_section = False
-                continue
-
-            if stripped_line and not stripped_line.startswith("=") and not stripped_line.startswith("#"):
-                if in_story_section:
-                    user_story.append(line.strip())
-                elif in_criteria_section:
-                    acceptance_criteria_lines.append(line.strip())
-
-        # Remove empty lines
-        user_story = [line for line in user_story if line]
-        acceptance_criteria_lines = [line for line in acceptance_criteria_lines if line]
-
-        if not user_story:
-            st.error("No User Story found in the uploaded file.")
-            return
-
-        if not acceptance_criteria_lines:
-            st.error("No Acceptance Criteria found in the uploaded file.")
-            return
-
-        # Extract test results from pytest output (optional)
-        st.sidebar.header("📄 Test Execution Results")
-        test_results_file = st.sidebar.file_uploader(
-            "Upload Pytest Output (Optional, for advanced analysis)", type=["txt", "md"], key="test_output"
+    with tab_file:
+        feature_spec_file = st.file_uploader(
+            "Upload Feature Specification (MD)",
+            type=["md"],
+            key="file_upload",
         )
+        if feature_spec_file is not None:
+            content = feature_spec_file.read().decode("utf-8")
+            with st.expander("📋 Preview uploaded file", expanded=False):
+                st.markdown(content)
 
-        st.sidebar.file_uploader(
-            "Upload Page Model YAML (Optional, for page object patterns)", type=["yaml", "yml"], key="page_model"
+    with tab_text:
+        pasted = st.text_area(
+            "Paste your user story and acceptance criteria",
+            height=300,
+            placeholder=(
+                "## User Story\n"
+                "As a user I want to log in so that I can access my account.\n\n"
+                "## Acceptance Criteria\n"
+                "- Login form is displayed\n"
+                "- User can enter username and password\n"
+                "- Clicking LOGIN redirects to the inventory page"
+            ),
+            key="pasted_text",
         )
+        if pasted.strip():
+            content = pasted
 
-        # Create a new file upload widget only when needed
-        if test_results_file is not None:
-            st.sidebar.markdown("#### Uploaded Test Results")
-            test_content = test_results_file.read().decode("utf-8")
-            st.sidebar.text_area("Pytest Output", test_content, height=300)
+    if not content:
+        st.info("👆 Upload a feature specification file or paste a user story to begin.")
+        return
 
-        # Extract criteria and count them
-        user_story_text = "\n".join(user_story)
-        acceptance_criteria_text = "\n".join(acceptance_criteria_lines)
-        criteria_count = len(acceptance_criteria_lines)
+    # ── Parse content (shared path for both inputs) ───────────────────────────
+    user_story, acceptance_criteria_lines = parse_feature_text(content)
 
-        st.sidebar.markdown(f"**Criteria Count**: {criteria_count}")
+    if not user_story:
+        st.error("Couldn't find a user story. Add a '## User Story' heading or just type your story directly.")
+        return
 
-        if st.button("🚀 Generate Tests", type="primary"):
-            # Clear previous run state
-            st.session_state.last_run_result = None
-            st.session_state.last_run_success = False
-            st.session_state.last_run_output = ""
-            st.session_state.coverage_analysis = {}
+    if not acceptance_criteria_lines:
+        st.info(
+            "No '## Acceptance Criteria' section found - the AI will generate tests "
+            "from your story directly. For more precise control, add an "
+            "**## Acceptance Criteria** section with one criterion per line."
+        )
+        acceptance_criteria_lines = user_story
 
-            # Prepare the prompt for AI
-            system_prompt = get_system_prompt().format(
-                user_story=user_story_text, criteria=acceptance_criteria_text, count=criteria_count
-            )
+    # Sidebar extras
+    st.sidebar.header("Test Execution Results")
+    test_results_file = st.sidebar.file_uploader(
+        "Upload Pytest Output (Optional, for advanced analysis)",
+        type=["txt", "md"],
+        key="test_output",
+    )
+    st.sidebar.file_uploader(
+        "Upload Page Model YAML (Optional, for page object patterns)",
+        type=["yaml", "yml"],
+        key="page_model",
+    )
+    if test_results_file is not None:
+        st.sidebar.markdown("#### Uploaded Test Results")
+        test_content = test_results_file.read().decode("utf-8")
+        st.sidebar.text_area("Pytest Output", test_content, height=300)
 
-            prompt_template = """
+    user_story_text = "\n".join(user_story)
+    acceptance_criteria_text = "\n".join(acceptance_criteria_lines)
+    criteria_count = len(acceptance_criteria_lines)
+    st.sidebar.markdown(f"**Criteria Count**: {criteria_count}")
+
+    if st.button("Generate Tests", type="primary"):
+        st.session_state.last_run_result = None
+        st.session_state.last_run_success = False
+        st.session_state.last_run_output = ""
+        st.session_state.coverage_analysis = {}
+
+        system_prompt = get_system_prompt().format(
+            user_story=user_story_text,
+            criteria=acceptance_criteria_text,
+            count=criteria_count,
+        )
+        prompt_template = """
 ### PAGE CONTEXT (If available):
 {page_context}
 ### END PAGE CONTEXT
 
 ### GENERATION INSTRUCTIONS:
-- If PAGE CONTEXT is provided above, you MUST use ONLY the locators listed in the 'Page Context' section.
-- Do not invent selectors that are not in the PAGE CONTEXT.
-- Use the exact selector names and values from the Page Context for all interactions.
+- If PAGE CONTEXT is provided above, use ONLY the locators listed there.
+- Do not invent selectors not in the PAGE CONTEXT.
 
 """
-            full_prompt = system_prompt + prompt_template
+        full_prompt = system_prompt + prompt_template
 
-            with st.spinner("⏳ Generating Playwright tests..."):
-                try:
-                    generator = TestGenerator(page_url=None)
-                    generated_code = generator.client.generate_test(full_prompt)
+        with st.spinner("Generating Playwright tests..."):
+            try:
+                generator = TestGenerator(page_url=None)
+                generated_code = normalise_code_newlines(generator.client.generate_test(full_prompt))
 
-                    if generated_code:
-                        # Save to disk so Run Now can find it
-                        saved_path = save_generated_test(
-                            test_code=generated_code,
-                            story_text=user_story_text,
-                            base_url=base_url,
+                if generated_code:
+                    saved_path = save_generated_test(
+                        test_code=generated_code,
+                        story_text=user_story_text,
+                        base_url=base_url,
+                    )
+                    st.session_state.generated_code = generated_code
+                    st.session_state.saved_test_path = saved_path
+
+                    test_names = re.findall(r"^def (test_\w+)", generated_code, re.MULTILINE)
+                    requirements = []
+                    for i, criterion in enumerate(acceptance_criteria_lines, 1):
+                        req_id = f"TC-{i:03}"
+                        num_str = f"{i:02}"
+                        linked = [n for n in test_names if f"test_{num_str}_" in n or f"test_{i}_" in n]
+                        if not linked:
+                            words = set(criterion.lower().split())
+                            linked = [n for n in test_names if len(words & set(n.lower().split("_"))) >= 2]
+                        requirements.append(
+                            RequirementCoverage(
+                                id=req_id,
+                                description=criterion,
+                                status="covered" if linked else "not_covered",
+                                linked_tests=linked,
+                            )
                         )
-                        st.session_state.generated_code = generated_code
-                        st.session_state.saved_test_path = saved_path
+                    st.session_state.coverage_analysis = {"requirements": requirements}
 
-                        # Build coverage analysis — extract test function names directly
-                        test_names = re.findall(r"^def (test_\w+)", generated_code, re.MULTILINE)
-                        requirements = []
-                        for i, criterion in enumerate(acceptance_criteria_lines, 1):
-                            req_id = f"TC-{i:03}"
-                            num_str = f"{i:02}"
-                            linked = [name for name in test_names if f"test_{num_str}_" in name or f"test_{i}_" in name]
-                            if not linked:
-                                words = set(criterion.lower().split())
-                                linked = [name for name in test_names if len(words & set(name.lower().split("_"))) >= 2]
-                            requirements.append(
-                                RequirementCoverage(
-                                    id=req_id,
-                                    description=criterion,
-                                    status="covered" if linked else "not_covered",
-                                    linked_tests=linked,
-                                )
-                            )
-                        st.session_state.coverage_analysis = {"requirements": requirements}
+                    st.success(f"Tests Generated - saved to `{saved_path}`")
 
-                        st.success(f"✅ Tests Generated - saved to `{saved_path}`")
+                    tab1, tab2 = st.tabs(["Test Code", "Coverage"])
+                    with tab1:
+                        st.code(generated_code, language="python")
+                        st.download_button(
+                            label="Download Test File",
+                            data=generated_code,
+                            file_name=f"test_{base_url.split(':')[1].replace('/', '_').strip('_')}.py",
+                            mime="text/x-python",
+                            key="dl_py",
+                        )
+                    with tab2:
+                        display_coverage(
+                            coverage_analysis=st.session_state.coverage_analysis,
+                            run_result=st.session_state.last_run_result,
+                        )
+                else:
+                    st.error("Failed to generate tests - the LLM returned an empty response.")
 
-                        tab1, tab2 = st.tabs(["📝 Test Code", "📊 Coverage"])
-                        with tab1:
-                            st.code(generated_code, language="python")
-                            st.download_button(
-                                label="⬇️ Download Test File",
-                                data=generated_code,
-                                file_name=f"test_{base_url.split(':')[1].replace('/', '_').strip('_')}.py",
-                                mime="text/x-python",
-                                key="dl_py",
-                            )
-                        with tab2:
-                            display_coverage(
-                                coverage_analysis=st.session_state.coverage_analysis,
-                                run_result=st.session_state.last_run_result,
-                            )
-                    else:
-                        st.error("❌ Failed to generate tests. Please try again.")
+            except Exception as e:
+                st.error(f"Error: {str(e)}")
+                import traceback
 
-                except Exception as e:
-                    st.error(f"❌ Error occurred during generation: {str(e)}")
+                with st.expander("Full traceback"):
+                    st.code(traceback.format_exc(), language="plaintext")
 
-        # Show run button and results whenever we have a saved test
-        if st.session_state.get("saved_test_path"):
-            st.markdown("---")
-            display_run_button()
+    if st.session_state.get("saved_test_path"):
+        st.markdown("---")
+        display_run_button()
 
-            # Re-render coverage table with run results after a run
-            if st.session_state.last_run_result and st.session_state.coverage_analysis:
-                st.markdown("### 📊 Coverage × Run Results")
-                display_coverage(
-                    coverage_analysis=st.session_state.coverage_analysis,
-                    run_result=st.session_state.last_run_result,
-                )
+        if st.session_state.last_run_result and st.session_state.coverage_analysis:
+            st.markdown("### Coverage x Run Results")
+            display_coverage(
+                coverage_analysis=st.session_state.coverage_analysis,
+                run_result=st.session_state.last_run_result,
+            )
 
-            # HTML report download
-            if st.session_state.coverage_analysis or st.session_state.last_run_result:
-                html_report = _generate_html_report(
-                    coverage_analysis=st.session_state.coverage_analysis or None,
-                    run_result=st.session_state.last_run_result,
-                )
+        if st.session_state.coverage_analysis or st.session_state.last_run_result:
+            report_dicts = _build_report_dicts(
+                coverage_analysis=st.session_state.coverage_analysis or None,
+                run_result=st.session_state.last_run_result,
+            )
+            html_report = _generate_html_report(
+                coverage_analysis=st.session_state.coverage_analysis or None,
+                run_result=st.session_state.last_run_result,
+            )
+            local_md = generate_local_report(report_dicts)
+            jira_md = generate_jira_report(report_dicts)
+
+            st.markdown("#### 📥 Download Reports")
+            col_a, col_b, col_c = st.columns(3)
+            with col_a:
                 st.download_button(
-                    label="🌐 Download HTML Report",
+                    label="📄 local.md",
+                    data=local_md,
+                    file_name="report_local.md",
+                    mime="text/markdown",
+                    key="dl_local",
+                    use_container_width=True,
+                )
+            with col_b:
+                st.download_button(
+                    label="🎫 jira.md",
+                    data=jira_md,
+                    file_name="report_jira.md",
+                    mime="text/markdown",
+                    key="dl_jira",
+                    use_container_width=True,
+                )
+            with col_c:
+                st.download_button(
+                    label="🌐 standalone.html",
                     data=html_report,
                     file_name="test_report.html",
                     mime="text/html",
                     key="dl_html",
+                    use_container_width=True,
                 )
-
-    else:
-        st.info("👆 Upload a feature specification file to begin generating Playwright tests.")
 
 
 if __name__ == "__main__":

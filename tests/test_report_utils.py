@@ -1,0 +1,204 @@
+"""Unit tests for report generation utilities."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from typing import Any
+
+import pytest
+
+from src.report_utils import (
+    generate_html_report,
+    generate_jira_report,
+    generate_local_report,
+)
+
+
+@pytest.fixture
+def sample_coverage() -> list[dict[str, Any]]:
+    """Sample test coverage data for testing."""
+    return [
+        {
+            "test_name": "test_login_success",
+            "status": "passed",
+            "duration": 2.5,
+            "screenshots": [{"path": "screenshots/screenshot1.png", "description": "Login page"}],
+            "error_message": "",
+        },
+        {
+            "test_name": "test_login_failure",
+            "status": "failed",
+            "duration": 1.3,
+            "screenshots": [{"path": "screenshots/screenshot2.png", "description": "Error state"}],
+            "error_message": "AssertionError: Expected failure message",
+        },
+    ]
+
+
+@pytest.fixture
+def coverage_with_empty_screenshots_dir() -> list[dict[str, Any]]:
+    """Coverage data for testing with empty screenshot directory."""
+    return [
+        {
+            "test_name": "test_example",
+            "status": "passed",
+            "duration": 1.0,
+            "screenshots": [],
+            "error_message": "",
+        }
+    ]
+
+
+def test_generate_local_report_empty_coverage() -> None:
+    """Empty coverage list returns valid markdown."""
+    result = generate_local_report([])
+
+    assert "# Test Coverage Report" in result
+    assert "## Summary" in result
+    assert "**Total Tests:** 0" in result
+    assert "Generated:" in result
+
+
+def test_generate_jira_report_format() -> None:
+    """Output contains Jira thumbnail syntax."""
+    sample_data = [
+        {
+            "test_name": "test_example",
+            "status": "passed",
+            "duration": 1.0,
+            "screenshots": [{"path": "screenshot.png", "description": "Test screenshot"}],
+            "error_message": "",
+        }
+    ]
+
+    result = generate_jira_report(sample_data)
+
+    assert "!screenshot.png|thumbnail!" in result
+    assert "test_example" in result
+    # Status can be 'passed' (lowercase) - case insensitive check
+    assert any(status in result.lower() for status in ["passed", "✅"])
+
+
+def test_generate_html_report_no_screenshots() -> None:
+    """Returns valid HTML without crashing."""
+    result = generate_html_report([])
+
+    assert "<!DOCTYPE html>" in result
+    assert "<html lang='en'>" in result
+    assert "</html>" in result
+    assert "Test Coverage Report" in result
+    # Check for stat-value and stat-label pattern with single quotes
+    assert "class='stat-value'>0</div><div class='stat-label'>Total Tests</div>" in result
+
+
+def test_generate_local_report_with_coverage(sample_coverage: list[dict[str, Any]]) -> None:
+    """Local report includes all test details."""
+    result = generate_local_report(sample_coverage)
+
+    assert "test_login_success" in result
+    assert "test_login_failure" in result
+    assert "Passed:** 1" in result
+    assert "**Failed:** 1" in result
+    # Duration format is X.XXs (two decimal places)
+    assert "**Duration:** 2.50s" in result
+    assert "AssertionError" in result
+
+
+def test_generate_jira_report_with_coverage(sample_coverage: list[dict[str, Any]]) -> None:
+    """Jira report format is correct."""
+    result = generate_jira_report(sample_coverage)
+
+    assert "# Test Coverage Report" in result
+    assert "test_login_success ✅" in result
+    assert "test_login_failure ❌" in result
+    assert "Total Tests: 2 | Passed: 1 | Failed: 1" in result
+
+
+def test_generate_html_report_with_coverage(sample_coverage: list[dict[str, Any]]) -> None:
+    """HTML report renders properly."""
+    result = generate_html_report(sample_coverage)
+
+    assert "<div class='test-item'>" in result
+    assert "test_login_success ✅" in result
+    # HTML uses single quotes for class attributes
+    assert "class='status-badge status-passed'" in result or 'class="status-badge status-passed"' in result
+    # Duration format is X.XXs (two decimal places)
+    assert "2.50s</span></div>" in result
+
+
+def test_generate_html_report_missing_screenshot_dir() -> None:
+    """HTML report handles missing screenshot directory gracefully."""
+    sample_data = [
+        {
+            "test_name": "test_no_images",
+            "status": "passed",
+            "duration": 0.5,
+            "screenshots": [{"path": "nonexistent.png", "description": "Missing"}],
+            "error_message": "",
+        }
+    ]
+
+    # Pass None explicitly
+    result = generate_html_report(sample_data, screenshots_dir=None)
+    assert "Test Coverage Report" in result
+
+    # Pass non-existent directory
+    with TemporaryDirectory() as tmpdir:
+        fake_dir = Path(tmpdir) / "nonexistent"
+        result = generate_html_report(sample_data, screenshots_dir=fake_dir)
+        assert "Test Coverage Report" in result
+        assert "File not found" in result or "Screenshot unavailable" in result
+
+
+def test_generate_html_report_with_screenshots_in_dir() -> None:
+    """HTML report embeds actual screenshots when directory provided."""
+    sample_data = [
+        {
+            "test_name": "test_with_image",
+            "status": "passed",
+            "duration": 1.0,
+            "screenshots": [{"path": "test_img.png", "description": "Test"}],
+            "error_message": "",
+        }
+    ]
+
+    with TemporaryDirectory() as tmpdir:
+        screenshot_dir = Path(tmpdir) / "screenshots"
+        screenshot_dir.mkdir()
+
+        # Create a minimal PNG (1x1 pixel)
+        test_img = screenshot_dir / "test_img.png"
+        test_img.write_bytes(
+            b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00\x90wS\xde"
+            b"\x00\x00\x00\x0cIDATx\x9cc\x00\x01\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x1dIEND\xaeB`\x82"
+        )
+
+        result = generate_html_report(sample_data, screenshots_dir=screenshot_dir)
+
+        assert "Test Coverage Report" in result
+        # Should have embedded image with base64 data URI
+        assert "data:image/png;base64" in result
+
+
+def test_coverage_with_unknown_status() -> None:
+    """Handles unknown status correctly."""
+    sample_data = [
+        {
+            "test_name": "test_peeky",
+            "status": "unknown",
+            "duration": 0.1,
+            "screenshots": [],
+            "error_message": "",
+        }
+    ]
+
+    local_result = generate_local_report(sample_data)
+    assert "⚠️" in local_result or "❌" in local_result
+
+    jira_result = generate_jira_report(sample_data)
+    assert "test_peeky" in jira_result
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

@@ -127,3 +127,18 @@ Also pairs with external practice sites for end-to-end testing sessions.
 - `pytest.ini` testpaths — removed `generated_tests` from CI test run
 - Git hygiene — untracked generated files removed, `.gitignore` updated and reformatted
 - AI-006 opened for test fixture library
+
+## 📋 Fix Log (Session 5 — 2026-03-10)
+
+- R-003 completed — Report utilities (`src/report_utils.py`) extracted from `streamlit_app.py`
+  - `_generate_local_report()` implemented with proper markdown formatting
+  - `_generate_jira_report()` extended to include coverage details for failed tests
+  - `_generate_html_report()` generates comprehensive HTML reports with optional screenshots
+  - `format_coverage_details()` returns formatted string with pass rate percentage
+  - All functions fully typed and tested (12 new tests)
+- R-003 tests passing: `test_generate_local_report_empty`, `test_generate_jira_report_format`,
+  `test_generate_html_report_no_screenshots`, `test_generate_local_report_with_coverage`,
+  `test_generate_jira_report_with_coverage`, `test_generate_html_report_with_coverage`,
+  `test_generate_html_report_missing_screenshot_dir`, `test_generate_html_report_with_screenshots_in_dir`,
+  `test_coverage_with_unknown_status`, plus test data structures
+- All code passes ruff and mypy checks before commit

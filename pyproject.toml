@@ -12,6 +12,7 @@ dependencies = [
     "requests>=2.32.5",
     "ollama>=0.1.0",
     "streamlit>=1.32.0",
+    "crewai[litellm]>=1.10.1",
 ]
 [dependency-groups]
 dev = [
