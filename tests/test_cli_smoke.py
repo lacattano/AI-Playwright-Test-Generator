@@ -8,6 +8,7 @@ asserting on full test content.
 from __future__ import annotations
 
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -15,9 +16,7 @@ def test_cli_generate_smoke(tmp_path: Path) -> None:
     """Run a minimal generate command and assert it completes."""
     output_dir = tmp_path / "out"
     cmd = [
-        "uv",
-        "run",
-        "python",
+        sys.executable,
         "-m",
         "cli.main",
         "generate",
