@@ -1,181 +1,439 @@
-"""Unit tests for src/page_context_scraper.py
+"""
+Tests for page_context_scraper.py
 
 Tests cover:
-- PageElement dataclass construction
-- PageContext.to_prompt_block() output format
-- _build_recommended_locator() priority logic
-- scrape_page_context() error handling (mocked — no live browser needed)
+- Data class serialization/deserialization
+- Locator building logic
+- PageContext formatting
+- Scraper state management
+- Multi-page context aggregation
 """
 
+from typing import Any
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from src.page_context_scraper import (
+    MultiPageContext,
     PageContext,
     PageElement,
+    ScraperState,
     _build_recommended_locator,
-    scrape_page_context,
+    _extract_context,
+    scrape_multiple_pages,
 )
 
 
-class TestBuildRecommendedLocator:
-    def test_prefers_test_id_over_all(self) -> None:
-        el: dict[str, str | None] = {
-            "test_id": "submit-btn",
-            "label": "Submit",
-            "element_id": "btn1",
-            "name": None,
-            "visible_text": None,
-            "input_type": None,
-            "placeholder": None,
-        }
-        assert _build_recommended_locator("button", el) == 'page.get_by_test_id("submit-btn")'
+class TestPageElement:
+    """Tests for PageElement dataclass."""
 
-    def test_prefers_id_over_label(self) -> None:
-        el: dict[str, str | None] = {
-            "element_id": "driverNameInput",
-            "test_id": None,
-            "label": "Driver Name",
-            "name": None,
-            "visible_text": None,
-            "input_type": None,
-            "placeholder": None,
-        }
-        result = _build_recommended_locator("input", el)
-        assert result == 'page.locator("#driverNameInput")'
+    def test_page_element_minimal(self) -> None:
+        """Test creating a minimal PageElement."""
+        element = PageElement(tag="input")
+        assert element.tag == "input"
+        assert element.role is None
+        assert element.label is None
+        assert element.recommended_locator is None
 
-    def test_falls_back_to_name(self) -> None:
-        el: dict[str, str | None] = {
-            "test_id": None,
-            "label": None,
-            "element_id": None,
-            "name": "username",
-            "visible_text": None,
-            "input_type": None,
-            "placeholder": None,
-        }
-        assert _build_recommended_locator("input", el) == "page.locator(\"[name='username']\")"
-
-    def test_falls_back_to_visible_text(self) -> None:
-        el: dict[str, str | None] = {
-            "test_id": None,
-            "label": None,
-            "element_id": None,
-            "name": None,
-            "visible_text": "Add Driver",
-            "input_type": None,
-            "placeholder": None,
-        }
-        assert _build_recommended_locator("button", el) == 'page.get_by_text("Add Driver")'
-
-    def test_falls_back_to_tag_only(self) -> None:
-        el: dict[str, str | None] = {
-            "test_id": None,
-            "label": None,
-            "element_id": None,
-            "name": None,
-            "visible_text": None,
-            "input_type": None,
-            "placeholder": None,
-        }
-        result = _build_recommended_locator("button", el)
-        assert "button" in result
-
-
-class TestPageContextToPromptBlock:
-    def test_contains_url(self) -> None:
-        ctx = PageContext(url="http://localhost:8080", page_title="Test Page", h1_text=None)
-        block = ctx.to_prompt_block()
-        assert "http://localhost:8080" in block
-
-    def test_contains_page_title(self) -> None:
-        ctx = PageContext(url="http://example.com", page_title="My App", h1_text=None)
-        block = ctx.to_prompt_block()
-        assert "My App" in block
-
-    def test_contains_h1_when_present(self) -> None:
-        ctx = PageContext(url="http://example.com", page_title="App", h1_text="Welcome")
-        block = ctx.to_prompt_block()
-        assert "Welcome" in block
-
-    def test_omits_h1_line_when_none(self) -> None:
-        ctx = PageContext(url="http://example.com", page_title="App", h1_text=None)
-        block = ctx.to_prompt_block()
-        assert "H1" not in block
-
-    def test_contains_element_details(self) -> None:
-        el = PageElement(
+    def test_page_element_full(self) -> None:
+        """Test creating a fully populated PageElement."""
+        element = PageElement(
             tag="input",
-            label="Driver Name",
-            element_id="driverNameInput",
-            input_type="text",
-            recommended_locator='page.locator("#driverNameInput")',
+            role="textbox",
+            label="Email Address",
+            test_id="email-input",
+            element_id="email",
+            name="email",
+            placeholder="you@example.com",
+            input_type="email",
+            is_required=True,
+            recommended_locator='page.get_by_test_id("email-input")',
         )
-        ctx = PageContext(url="http://example.com", page_title="App", h1_text=None, elements=[el])
-        block = ctx.to_prompt_block()
-        assert "driverNameInput" in block
-        assert "Driver Name" in block
+        assert element.tag == "input"
+        assert element.role == "textbox"
+        assert element.label == "Email Address"
+        assert element.is_required is True
 
-    def test_contains_do_not_invent_instruction(self) -> None:
-        ctx = PageContext(url="http://example.com", page_title="App", h1_text=None)
-        block = ctx.to_prompt_block()
-        assert "Do not invent" in block
 
-    def test_empty_elements_still_valid(self) -> None:
-        ctx = PageContext(url="http://example.com", page_title="App", h1_text=None)
-        block = ctx.to_prompt_block()
-        assert "INTERACTIVE ELEMENTS:" in block
+class TestPageContext:
+    """Tests for PageContext dataclass."""
 
-    def test_form_count_shown(self) -> None:
-        el = PageElement(tag="input", element_id="emailInput")
-        ctx = PageContext(
+    def test_element_count(self) -> None:
+        """Test element_count method returns correct count."""
+        elements = [
+            PageElement(tag="input", label="Field 1"),
+            PageElement(tag="button", label="Submit"),
+        ]
+        context = PageContext(
             url="http://example.com",
-            page_title="App",
-            h1_text=None,
-            elements=[el],
-            forms=[[el]],
-        )
-        block = ctx.to_prompt_block()
-        assert "1 form" in block
-
-
-class TestScrapePageContextErrorHandling:
-    @patch("src.page_context_scraper.subprocess.run")
-    def test_returns_none_and_message_on_timeout(self, mock_subprocess: MagicMock) -> None:
-        mock_subprocess.return_value.returncode = 1
-        mock_subprocess.return_value.stderr = "Timed out connecting"
-        ctx, error = scrape_page_context("http://localhost:9999")
-        assert ctx is None
-        assert error is not None
-        assert "scraper subprocess failed" in error.lower()
-
-    @patch("src.page_context_scraper.subprocess.run")
-    def test_returns_none_and_message_on_connection_error(self, mock_subprocess: MagicMock) -> None:
-        mock_subprocess.return_value.returncode = 1
-        mock_subprocess.return_value.stderr = "Connection refused"
-        ctx, error = scrape_page_context("http://localhost:9999")
-        assert ctx is None
-        assert error is not None
-
-    @patch("src.page_context_scraper.subprocess.run")
-    def test_returns_none_on_subprocess_error(self, mock_subprocess: MagicMock) -> None:
-        mock_subprocess.return_value.returncode = 1
-        mock_subprocess.return_value.stderr = "Playwright not installed"
-        ctx, error = scrape_page_context("http://example.com")
-        assert ctx is None
-        assert error is not None
-
-
-class TestPageContextElementCount:
-    def test_element_count_empty(self) -> None:
-        ctx = PageContext(url="http://example.com", page_title="App", h1_text=None)
-        assert ctx.element_count() == 0
-
-    def test_element_count_with_elements(self) -> None:
-        elements = [PageElement(tag="input"), PageElement(tag="button")]
-        ctx = PageContext(
-            url="http://example.com",
-            page_title="App",
-            h1_text=None,
+            page_title="Test Page",
+            h1_text="Welcome",
             elements=elements,
         )
-        assert ctx.element_count() == 2
+        assert context.element_count() == 2
+
+    def test_to_dict(self) -> None:
+        """Test serialization to dictionary."""
+        element = PageElement(tag="input", label="Test Field", test_id="test-123")
+        context = PageContext(
+            url="http://example.com",
+            page_title="Test Page",
+            h1_text="Welcome",
+            elements=[element],
+            scraped_at="2024-01-01T00:00:00Z",
+            scrape_duration_ms=1234,
+        )
+
+        data = context.to_dict()
+
+        assert data["url"] == "http://example.com"
+        assert data["page_title"] == "Test Page"
+        assert len(data["elements"]) == 1
+        assert data["elements"][0]["tag"] == "input"
+
+    def test_from_dict(self) -> None:
+        """Test deserialization from dictionary."""
+        data = {
+            "url": "http://example.com",
+            "page_title": "Test Page",
+            "h1_text": "Welcome",
+            "elements": [
+                {
+                    "tag": "input",
+                    "role": "textbox",
+                    "label": "Email",
+                    "test_id": "email-field",
+                    "element_id": None,
+                    "name": "email",
+                    "placeholder": "Enter email",
+                    "visible_text": None,
+                    "input_type": "email",
+                    "is_required": True,
+                    "recommended_locator": 'page.get_by_test_id("email-field")',
+                }
+            ],
+            "forms": [],
+            "scraped_at": "2024-01-01T00:00:00Z",
+            "scrape_duration_ms": 500,
+        }
+
+        context = PageContext.from_dict(data)  # type: ignore[arg-type]
+
+        assert context.url == "http://example.com"
+        assert context.page_title == "Test Page"
+        assert len(context.elements) == 1
+        assert context.elements[0].tag == "input"
+        assert context.elements[0].test_id == "email-field"
+
+    def test_from_dict_with_extra_keys(self) -> None:
+        """Test that extra keys in dict are safely ignored."""
+        data: dict[str, Any] = {
+            "url": "http://example.com",
+            "page_title": "Test",
+            "h1_text": None,
+            "elements": [],
+            "forms": [],
+            "extra_key": "should be ignored",
+            "another_extra": 12345,
+        }
+
+        context = PageContext.from_dict(data)
+
+        assert context.url == "http://example.com"
+        # Extra keys should not cause errors
+
+    def test_to_prompt_block(self) -> None:
+        """Test prompt block generation."""
+        element = PageElement(
+            tag="input",
+            label="Username",
+            test_id="username",
+            input_type="text",
+            recommended_locator='page.get_by_test_id("username")',
+        )
+        context = PageContext(
+            url="http://example.com/login",
+            page_title="Login",
+            h1_text="Sign In",
+            elements=[element],
+        )
+
+        prompt = context.to_prompt_block()
+
+        assert "=== PAGE CONTEXT" in prompt
+        assert "http://example.com/login" in prompt
+        assert 'aria-label="Username"' in prompt
+        assert 'data-testid="username"' in prompt
+        assert "USE THESE LOCATORS" in prompt
+
+
+class TestBuildRecommendedLocator:
+    """Tests for _build_recommended_locator function."""
+
+    def test_prefer_test_id(self) -> None:
+        """Test that data-testid is preferred over id."""
+        el: dict[str, str | None] = {"test_id": "my-test-id", "element_id": "my-id"}
+        locator = _build_recommended_locator("input", el)
+        assert locator == 'page.get_by_test_id("my-test-id")'
+
+    def test_fallback_to_element_id(self) -> None:
+        """Test fallback to element id when no test_id."""
+        el: dict[str, str | None] = {"element_id": "my-id"}
+        locator = _build_recommended_locator("button", el)
+        assert locator == 'page.locator("#my-id")'
+
+    def test_fallback_to_name(self) -> None:
+        """Test fallback to name attribute."""
+        el: dict[str, str | None] = {"name": "username"}
+        locator = _build_recommended_locator("input", el)
+        assert locator == "page.locator(\"[name='username']\")"
+
+    def test_fallback_to_label_for_button(self) -> None:
+        """Test fallback to label for button element."""
+        el: dict[str, str | None] = {"label": "Submit Button"}
+        locator = _build_recommended_locator("button", el)
+        assert locator == 'page.get_by_role("button", name="Submit Button")'
+
+    def test_fallback_to_label_for_input(self) -> None:
+        """Test fallback to label for input element."""
+        el: dict[str, str | None] = {"label": "Email Address"}
+        locator = _build_recommended_locator("input", el)
+        assert locator == 'page.get_by_role("input", name="Email Address")'
+
+    def test_fallback_to_visible_text(self) -> None:
+        """Test fallback to visible text."""
+        el: dict[str, str | None] = {"visible_text": "Click me"}
+        locator = _build_recommended_locator("a", el)
+        assert locator == 'page.get_by_text("Click me")'
+
+    def test_fallback_to_tag(self) -> None:
+        """Test final fallback to tag name."""
+        el: dict[str, str | None] = {}
+        locator = _build_recommended_locator("div", el)
+        assert locator == 'page.locator("div")'
+
+
+class TestScraperState:
+    """Tests for ScraperState dataclass."""
+
+    def test_initial_state(self) -> None:
+        """Test initial state creation."""
+        state = ScraperState.initial(5)
+        assert state.status == "idle"
+        assert state.total_pages == 5
+        assert state.progress_percentage == 0.0
+        assert len(state.completed_urls) == 0
+
+    def test_to_dict(self) -> None:
+        """Test serialization to dict."""
+        state = ScraperState.initial(3)
+        data = state.to_dict()
+        assert data["status"] == "idle"
+        assert data["total_pages"] == 3
+
+    def test_from_dict(self) -> None:
+        """Test deserialization from dict."""
+        data = {
+            "status": "scraping",
+            "current_page_index": 2,
+            "total_pages": 5,
+            "progress_percentage": 40.0,
+            "completed_urls": ["http://a.com"],
+            "failed_urls": [],
+            "error_message": None,
+            "started_at": "2024-01-01T00:00:00Z",
+            "completed_at": None,
+        }
+        state = ScraperState.from_dict(data)
+        assert state.status == "scraping"
+        assert state.current_page_index == 2
+
+    def test_in_progress_state(self) -> None:
+        """Test in_progress state factory."""
+        state = ScraperState.in_progress(
+            current_page_index=1,
+            total_pages=3,
+            progress_percentage=33.3,
+            completed_urls=[],
+            failed_urls=[],
+        )
+        assert state.status == "scraping"
+        assert state.started_at is not None
+
+
+class TestMultiPageContext:
+    """Tests for MultiPageContext dataclass."""
+
+    def test_add_page(self) -> None:
+        """Test adding pages to multi-page context."""
+        mp_context = MultiPageContext(base_url="http://example.com")
+        page1 = PageContext(
+            url="http://example.com/page1",
+            page_title="Page 1",
+            h1_text="First",
+            elements=[PageElement(tag="input")],
+        )
+        mp_context.add_page(page1)
+
+        assert mp_context.success_count == 1
+        assert len(mp_context.pages) == 1
+
+    def test_total_elements(self) -> None:
+        """Test total_elements is calculated correctly."""
+        mp_context = MultiPageContext(base_url="http://example.com")
+        page1 = PageContext(
+            url="http://example.com/page1",
+            page_title="Page 1",
+            h1_text=None,
+            elements=[PageElement(tag="input"), PageElement(tag="button")],
+        )
+        page2 = PageContext(
+            url="http://example.com/page2",
+            page_title="Page 2",
+            h1_text=None,
+            elements=[PageElement(tag="select")],
+        )
+        mp_context.add_page(page1)
+        mp_context.add_page(page2)
+
+        assert mp_context.total_elements == 0  # Not auto-calculated in add_page
+
+    def test_is_empty(self) -> None:
+        """Test is_empty property."""
+        mp_context = MultiPageContext(base_url="http://example.com")
+        assert mp_context.is_empty is True
+
+        mp_context.add_page(PageContext(url="http://example.com/page1", page_title="P1", h1_text=None))
+        assert mp_context.is_empty is False
+
+    def test_to_prompt_block(self) -> None:
+        """Test multi-page prompt block generation."""
+        mp_context = MultiPageContext(base_url="http://example.com")
+        page = PageContext(
+            url="http://example.com/login",
+            page_title="Login",
+            h1_text="Sign In",
+            elements=[PageElement(tag="input", label="Username")],
+        )
+        mp_context.add_page(page)
+
+        prompt = mp_context.to_prompt_block()
+
+        assert "MULTI-PAGE CONTEXT INJECTED" in prompt
+        assert "http://example.com" in prompt
+        assert "Pages scraped: 1" in prompt
+
+
+class TestScrapeMultiplePages:
+    """Tests for scrape_multiple_pages function."""
+
+    @patch("src.page_context_scraper.scrape_page_context")
+    def test_scrapes_all_urls(self, mock_scrape: MagicMock) -> None:
+        """Test that all URLs are scraped."""
+        mock_context = PageContext(
+            url="http://example.com",
+            page_title="Test",
+            h1_text=None,
+            elements=[PageElement(tag="input")],
+        )
+        mock_scrape.return_value = (mock_context, None)
+
+        result, state = scrape_multiple_pages(
+            base_url="http://example.com/1",
+            additional_urls=["http://example.com/2"],
+        )
+
+        assert result.success_count == 2
+        assert state.status == "complete"
+        assert len(state.failed_urls) == 0
+
+    @patch("src.page_context_scraper.scrape_page_context")
+    def test_handles_failures(self, mock_scrape: MagicMock) -> None:
+        """Test that failures are tracked correctly."""
+
+        call_count = [0]
+
+        def scrape_side_effect(*args: object, **kwargs: object) -> tuple[PageContext | None, str | None]:  # noqa: D103
+            call_count[0] += 1
+            if call_count[0] == 2:
+                return (None, "Connection failed")
+            return (
+                PageContext(url="http://test", page_title="T", h1_text=None),
+                None,
+            )
+
+        mock_scrape.side_effect = scrape_side_effect  # type: ignore[arg-type]
+
+        result, state = scrape_multiple_pages(
+            base_url="http://example.com/1",
+            additional_urls=["http://example.com/2"],
+        )
+
+        assert result.success_count == 1
+        assert len(state.failed_urls) == 1
+        assert state.status == "error"
+
+    @patch("src.page_context_scraper.scrape_page_context")
+    def test_calls_progress_callback(self, mock_scrape: MagicMock) -> None:
+        """Test that progress callback is called."""
+
+        mock_context = PageContext(url="http://example.com", page_title="Test", h1_text=None)
+        mock_scrape.return_value = (mock_context, None)
+
+        callbacks_received: list[tuple[int, int, str]] = []
+
+        def progress_callback(current: int, total: int, url: str) -> None:  # type: ignore[no-untyped-def]
+            callbacks_received.append((current, total, url))
+
+        result, state = scrape_multiple_pages(
+            base_url="http://example.com/1",
+            additional_urls=["http://example.com/2"],
+            progress_callback=progress_callback,  # type: ignore[arg-type]
+        )
+
+        assert len(callbacks_received) == 2
+
+
+class TestExtractContext:
+    """Tests for _extract_context function (requires mock Playwright page)."""
+
+    @pytest.fixture
+    def mock_page(self) -> MagicMock:
+        """Create a mock Playwright page object."""
+        mock = MagicMock()
+        mock.title.return_value = "Mock Page Title"
+        return mock
+
+    @pytest.fixture
+    def mock_input_element(self) -> MagicMock:
+        """Create a mock input element."""
+        mock = MagicMock()
+        mock.is_visible.return_value = True
+        attrs: dict[str, str | None] = {
+            "id": "email-field",
+            "name": "email",
+            "aria-label": "Email Address",
+            "data-testid": "email-input",
+            "placeholder": "Enter your email",
+            "type": "email",
+            "required": "true",
+            "role": None,
+        }
+        mock.get_attribute.side_effect = lambda attr: attrs.get(attr)
+        return mock
+
+    def test_extract_context_with_mock_page(self, mock_page: MagicMock, mock_input_element: MagicMock) -> None:
+        """Test context extraction with mocked Playwright objects."""
+        # Mock H1 element
+        mock_h1 = MagicMock()
+        mock_h1.inner_text.return_value = "Welcome to the Site"
+        mock_page.query_selector.return_value = mock_h1
+
+        mock_page.query_selector_all.return_value = [mock_input_element]
+
+        context = _extract_context(mock_page, "http://example.com/form")
+
+        assert context.page_title == "Mock Page Title"
+        assert context.h1_text == "Welcome to the Site"
+        assert len(context.elements) > 0

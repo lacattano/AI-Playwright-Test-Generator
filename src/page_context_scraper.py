@@ -3,6 +3,11 @@ page_context_scraper.py — Extract interactive elements from a live page.
 
 Uses a headless Playwright browser to visit the target URL and return
 a structured PageContext for injection into the LLM prompt.
+
+Supports:
+- Single page scraping (Phase A)
+- Multi-page scraping (Phase A - multiple static URLs)
+- Journey scraping (Phase B - placeholder for navigation-based workflows)
 """
 
 import argparse
@@ -10,11 +15,17 @@ import json
 import subprocess
 import sys
 import time
-from dataclasses import dataclass, field
+from collections.abc import Callable
+from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
+from typing import Any, Literal
 
 from playwright.sync_api import Page, sync_playwright
 from playwright.sync_api import TimeoutError as PWTimeout
+
+# ============================================================================
+# Core Data Classes (existing)
+# ============================================================================
 
 
 @dataclass
@@ -50,27 +61,27 @@ class PageContext:
         """Return total number of interactive elements found."""
         return len(self.elements)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Serialize PageContext to a dictionary."""
         return {
             "url": self.url,
             "page_title": self.page_title,
             "h1_text": self.h1_text,
-            "elements": [vars(e) for e in self.elements],
-            "forms": [[vars(e) for e in f] for f in self.forms],
+            "elements": [asdict(e) for e in self.elements],
+            "forms": [[asdict(e) for e in f] for f in self.forms],
             "scraped_at": self.scraped_at,
             "scrape_duration_ms": self.scrape_duration_ms,
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "PageContext":
+    def from_dict(cls, data: dict[str, Any]) -> "PageContext":
         """Deserialize PageContext from a dictionary."""
         context = cls(
             url=data["url"],
             page_title=data["page_title"],
-            h1_text=data["h1_text"],
+            h1_text=data.get("h1_text"),
         )
-        # Safely extract elements, ignoring extra keys like 'is_required' during dict instantiation
+        # Safely extract elements, ignoring extra keys during dict instantiation
         context.elements = [
             PageElement(
                 tag=e.get("tag", "input"),
@@ -157,6 +168,128 @@ class PageContext:
         lines.append("USE THESE LOCATORS. Do not invent selectors not listed above.")
         lines.append("=" * 60)
         return "\n".join(lines)
+
+
+# ============================================================================
+# Multi-Page Scraping Data Classes (AI-010 - Phase A & B future-proofing)
+# ============================================================================
+
+
+@dataclass
+class ScraperState:
+    """
+    Serializable state for multi-page scraper in Streamlit session_state.
+
+    Uses only JSON-serializable types for safe storage.
+    """
+
+    status: Literal["idle", "scraping", "complete", "error"]
+    current_page_index: int
+    total_pages: int
+    progress_percentage: float
+    completed_urls: list[str]
+    failed_urls: list[str]
+    error_message: str | None = None
+    started_at: str | None = None
+    completed_at: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to JSON-safe dictionary."""
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "ScraperState":
+        """Deserialize from JSON-safe dictionary."""
+        return cls(
+            status=data["status"],
+            current_page_index=data.get("current_page_index", 0),
+            total_pages=data.get("total_pages", 0),
+            progress_percentage=data.get("progress_percentage", 0.0),
+            completed_urls=data.get("completed_urls", []),
+            failed_urls=data.get("failed_urls", []),
+            error_message=data.get("error_message"),
+            started_at=data.get("started_at"),
+            completed_at=data.get("completed_at"),
+        )
+
+    @classmethod
+    def initial(cls, total_pages: int) -> "ScraperState":
+        """Create initial state for a new scraping job."""
+        return cls(
+            status="idle",
+            current_page_index=0,
+            total_pages=total_pages,
+            progress_percentage=0.0,
+            completed_urls=[],
+            failed_urls=[],
+        )
+
+    @classmethod
+    def in_progress(cls, **kwargs: Any) -> "ScraperState":
+        """Create state representing active scraping."""
+        return cls(
+            status="scraping",
+            started_at=datetime.now(UTC).isoformat(),
+            **kwargs,
+        )
+
+
+@dataclass
+class MultiPageContext:
+    """
+    Collection of page contexts from multi-page scraping.
+
+    Holds multiple PageContexts with summary statistics for prompt injection.
+    """
+
+    base_url: str
+    pages: list[PageContext] = field(default_factory=list)
+    total_elements: int = 0
+    total_forms: int = 0
+    scrape_duration_ms: int = 0
+
+    def add_page(self, context: PageContext) -> None:
+        """Add a successfully scraped page context."""
+        self.pages.append(context)
+
+    @property
+    def success_count(self) -> int:
+        """Number of pages successfully scraped."""
+        return len(self.pages)
+
+    @property
+    def is_empty(self) -> bool:
+        """True if no pages were scraped."""
+        return len(self.pages) == 0
+
+    def to_prompt_block(self) -> str:
+        """
+        Generate combined prompt block for all pages.
+
+        Includes summary header followed by individual page contexts.
+        """
+        lines: list[str] = []
+        lines.append("=" * 70)
+        lines.append("MULTI-PAGE CONTEXT INJECTED (AI-010)")
+        lines.append(f"Base URL     : {self.base_url}")
+        lines.append(f"Pages scraped: {self.success_count}")
+        lines.append(f"Total elements found: {self.total_elements}")
+        lines.append(f"Total forms detected: {self.total_forms}")
+        lines.append("=" * 70)
+        lines.append("")
+
+        # Add each page's context
+        for i, page_ctx in enumerate(self.pages, 1):
+            lines.append(f"--- PAGE {i}: {page_ctx.url} ---")
+            lines.append(page_ctx.to_prompt_block())
+            lines.append("")
+
+        return "\n".join(lines)
+
+
+# ============================================================================
+# Scraper Functions
+# ============================================================================
 
 
 def _build_recommended_locator(el_tag: str, el: dict[str, str | None]) -> str:
@@ -246,12 +379,118 @@ def scrape_page_context(
         return None, f"Scraper error: {type(e).__name__}({e}) — generating without page context"
 
 
+def scrape_multiple_pages(
+    base_url: str,
+    additional_urls: list[str],
+    timeout_ms: int = 10_000,
+    progress_callback: Callable[..., Any] | None = None,
+) -> tuple[MultiPageContext, ScraperState]:
+    """
+    Scrape multiple pages (base URL + additional URLs).
+
+    Phase A implementation: scrapes each URL as a static page.
+    Phase B placeholder: journey scraping will extend this function.
+
+    Args:
+        base_url: The primary page URL (e.g., login page)
+        additional_urls: List of additional URLs to scrape (e.g., dashboard, settings)
+        timeout_ms: Navigation timeout in milliseconds (default 10s)
+        progress_callback: Optional callback(current_index, total) for UI updates
+
+    Returns:
+        (MultiPageContext with scraped pages, ScraperState with status)
+
+    Note on Phase B (Journey Scraping):
+        Future implementation will add navigation-based workflows where the scraper
+        follows links/buttons between pages. This requires extending the function to
+        accept a "journey definition" that specifies:
+        - Starting URL
+        - Navigation steps (click link X, fill form Y, submit)
+        - Which pages to capture along the journey
+    """
+    all_urls = [base_url] + additional_urls
+    total_pages = len(all_urls)
+
+    # Initialize scraper state
+    scraper_state = ScraperState.initial(total_pages)
+    scraper_state.status = "scraping"
+    scraper_state.started_at = datetime.now(UTC).isoformat()
+
+    result = MultiPageContext(base_url=base_url, pages=[])
+
+    start_time = time.monotonic()
+
+    for index, url in enumerate(all_urls, 1):
+        # Update progress
+        scraper_state.current_page_index = index
+        scraper_state.progress_percentage = (index / total_pages) * 100
+
+        if progress_callback:
+            try:
+                progress_callback(index, total_pages, url)
+            except Exception:
+                pass  # Don't let callback errors break scraping
+
+        context, error = scrape_page_context(url, timeout_ms)
+
+        if context:
+            result.add_page(context)
+            scraper_state.completed_urls.append(url)
+        else:
+            scraper_state.failed_urls.append(url)
+
+    # Finalize state
+    duration_ms = int((time.monotonic() - start_time) * 1000)
+    result.scrape_duration_ms = duration_ms
+    result.total_elements = sum(p.element_count() for p in result.pages)
+    result.total_forms = sum(len(p.forms) for p in result.pages)
+
+    scraper_state.current_page_index = total_pages
+    scraper_state.progress_percentage = 100.0
+    scraper_state.completed_at = datetime.now(UTC).isoformat()
+
+    if scraper_state.failed_urls:
+        scraper_state.status = "error"
+        scraper_state.error_message = (
+            f"Completed {result.success_count}/{total_pages} pages. Failed: {', '.join(scraper_state.failed_urls)}"
+        )
+    else:
+        scraper_state.status = "complete"
+
+    return result, scraper_state
+
+
+# ============================================================================
+# Journey Scraper Placeholder (AI-010 Phase B - Future Implementation)
+# ============================================================================
+
+# TODO: AI-010 Phase B - Journey Scraping
+#
+# Design document: FEATURE_SPEC_multi_page_scraping.md
+#
+# The journey scraper will allow users to define multi-step navigation workflows:
+#   1. Start at URL A (login page)
+#   2. Fill form with credentials, submit
+#   3. Navigate to URL B (dashboard) - capture context
+#   4. Click link to URL C (settings) - capture context
+#   5. Submit result containing all captured page contexts
+#
+# Planned implementation:
+#   - New JourneyStep dataclass for defining steps
+#   - execute_journey(base_url, journey_steps, progress_callback) function
+#   - UI updates in streamlit_app.py for visual journey builder
+#
+# For now, Phase A multi-page scraping (scrape_multiple_pages) handles
+# static URL lists without navigation between them.
+
+
 def _run_playwright_scraper_process(url: str, timeout_ms: int) -> tuple[PageContext | None, str | None]:
     """Helper function to run Playwright in an isolated subprocess context.
 
     NOTE: Do NOT set WindowsSelectorEventLoopPolicy here!
     SelectorEventLoop does not support _make_subprocess_transport on Windows,
     which Playwright needs to launch the browser. The default ProactorEventLoop
+    works correctly in a clean subprocess (main thread).
 
     NOTE ON METADATA: ``scraped_at`` and ``scrape_duration_ms`` are intentionally
     left at their zero/empty defaults when this function serialises the context via
@@ -259,7 +498,6 @@ def _run_playwright_scraper_process(url: str, timeout_ms: int) -> tuple[PageCont
     sets both fields after deserialising the JSON result, where it has access to the
     wall-clock start time.  Do not "fix" this by setting them inside the subprocess —
     the subprocess has no reliable way to measure end-to-end latency including IPC.
-    works correctly in a clean subprocess (main thread).
     """
     try:
         with sync_playwright() as pw:
@@ -303,7 +541,7 @@ def _extract_context(page: Page, url: str) -> PageContext:
 
     elements: list[PageElement] = []
 
-    # ── Inputs ────────────────────────────────────────────────────────────
+    # ── Inputs ────────────────────────────────────────────────────────────────
     for handle in page.query_selector_all("input:not([type='hidden'])"):
         if not handle.is_visible():
             continue
@@ -337,7 +575,7 @@ def _extract_context(page: Page, url: str) -> PageContext:
             )
         )
 
-    # ── Buttons ───────────────────────────────────────────────────────────
+    # ── Buttons ──────────────────────────────────────────────────────────────
     for handle in page.query_selector_all("button, input[type='submit'], input[type='button']"):
         if not handle.is_visible():
             continue
@@ -364,7 +602,7 @@ def _extract_context(page: Page, url: str) -> PageContext:
             )
         )
 
-    # ── Select dropdowns ──────────────────────────────────────────────────
+    # ── Select dropdowns ─────────────────────────────────────────────────────
     for handle in page.query_selector_all("select"):
         if not handle.is_visible():
             continue
@@ -393,7 +631,7 @@ def _extract_context(page: Page, url: str) -> PageContext:
             )
         )
 
-    # ── Textareas ─────────────────────────────────────────────────────────
+    # ── Textareas ────────────────────────────────────────────────────────────
     for handle in page.query_selector_all("textarea"):
         if not handle.is_visible():
             continue
@@ -423,7 +661,7 @@ def _extract_context(page: Page, url: str) -> PageContext:
             )
         )
 
-    # ── Forms (group inputs by parent <form>) ─────────────────────────────
+    # ── Forms (group inputs by parent <form>) ────────────────────────────────
     forms: list[list[PageElement]] = []
     for form_handle in page.query_selector_all("form"):
         form_elements: list[PageElement] = []
