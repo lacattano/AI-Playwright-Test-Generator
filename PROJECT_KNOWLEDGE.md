@@ -2,25 +2,48 @@
 
 ## Project Overview
 
-**AI Playwright Test Generator** - An AI-powered tool that generates Playwright Python test scripts from user stories and produces Jira-ready evidence bundles.
+**AI Playwright Test Generator** — An AI-powered tool that generates Playwright Python test scripts from user stories and produces Jira-ready evidence bundles.
 
 **Repository:** https://github.com/lacattano/AI-Playwright-Test-Generator
 
-**Current Status:** Active development — Streamlit UI working, LLM pipeline connected, save/coverage/run workflow complete, demo-ready
+**Current Status:** Active development — Streamlit UI working, LLM pipeline connected, page context scraper wired in, all report formats generating. CI currently failing — see **Known Broken Items** below before starting any session.
+
+---
+
+## ⚠️ Known Broken Items (Fix These First)
+
+These issues were confirmed broken as of the last commit (2026-03-13). Fix in order.
+
+### BREAK-1 — `src/pytest_output_parser.py` is missing (CI BLOCKER)
+**Symptom:** `pytest tests/ -v` fails with `ModuleNotFoundError: No module named 'src.pytest_output_parser'`  
+**Cause:** `tests/test_pytest_output_parser.py` imports the module, but the implementation file was never committed.  
+**Fix:** Copy `src/pytest_output_parser.py` from this document's appendix (or the `fix/` branch) into `src/`.  
+**Impact:** Until fixed, ALL tests fail in CI — this is the entire reason the last commit did not pass GitHub Actions.
+
+### BREAK-2 — Session state wipe in `display_run_button()`
+**Symptom:** After clicking "Run Now", the results panel is always blank.  
+**Cause:** In `streamlit_app.py`, inside `display_run_button()`, there are two lines immediately after the results are saved to session state that set them back to `None` and `""`:
+```python
+# BROKEN — these two lines must be deleted:
+st.session_state.last_run_success = None
+st.session_state.last_run_output = ""
+```
+**Fix:** Delete those two lines. The correct block sets values once and leaves them.  
+**Impact:** Run results never display, download buttons appear to do nothing.
 
 ---
 
 ## Tech Stack
 
 ### Core Technologies
-- **Python 3.13+** - Modern Python with full type hint support
-- **Playwright** - Browser automation framework
-- **pytest** - Professional test framework (pytest-playwright integration)
-- **Ollama** - Local LLM serving (qwen3.5:35b model)
-- **Streamlit** - Non-technical user UI
-- **GitHub Actions** - CI/CD pipeline
-- **Codecov** - Test coverage tracking
-- **uv** - Package manager (NOT pip — always use `uv add` / `uv sync`)
+- **Python 3.13+** — Modern Python with full type hint support
+- **Playwright** — Browser automation framework
+- **pytest** — Professional test framework (pytest-playwright integration)
+- **Ollama** — Local LLM serving (qwen3.5:35b model)
+- **Streamlit** — Non-technical user UI
+- **GitHub Actions** — CI/CD pipeline
+- **Codecov** — Test coverage tracking
+- **uv** — Package manager (NOT pip — always use `uv add` / `uv sync`)
 
 ### Key Dependencies
 ```
@@ -43,39 +66,32 @@ streamlit>=1.32.0
 ### ✅ Test Format: Pytest (DECIDED 2026-03-03)
 - **Use:** pytest-playwright with sync API
 - **Don't use:** Native async/await standalone tests
-- **Reason:** Professional standard (90% of QA jobs require pytest), better reporting, rich ecosystem
+- **Reason:** Professional standard, better reporting, rich ecosystem
 - **Impact:** All generated tests use pytest fixtures, expect() assertions, organised test discovery
 
 ### ✅ Screenshot Link Strategy: Multi-Format (DECIDED 2026-03-03)
 - **Generate automatically:** 3 formats per evidence bundle
-  1. `report_local.md` - Relative paths for local viewing/sharing
-  2. `report_jira.md` - Jira attachment format (`!filename.png|thumbnail!`)
-  3. `report.html` - Base64 embedded for email/archive (fully self-contained)
-- **Reason:** Each format serves specific purpose, generating all three is fast, no wrong choice possible
+  1. `local.md` — Relative paths for local viewing/sharing
+  2. `jira.md` — Jira attachment format (`!filename.png|thumbnail!`)
+  3. `standalone.html` — Base64 embedded, fully self-contained
+- **Reason:** Each format serves a specific purpose; generating all three is fast
 
 ### ✅ LLM Usage: Smart Hybrid Mode (DECIDED 2026-03-03)
 - **Default mode:** "Smart" (hybrid regex + LLM)
 - **Decision logic:**
   - Try regex parsing first (free, instant)
-  - Use LLM only if: >3 criteria found, regex finds nothing, ambiguous keywords present
+  - Use LLM only if: >3 criteria found, regex finds nothing, or ambiguous keywords present
   - User-configurable: Lightweight (regex only), Smart (default), Always LLM
 
 ### ✅ UI: Streamlit (DECIDED 2026-03-05)
 - **Use:** Streamlit for non-technical user interface
 - **Don't use:** Flask/Django/React — too much overhead for this use case
-- **Reason:** Pure Python, single file, deployable in one command, fits existing stack
 - **Entry point:** `streamlit_app.py` — launch with `bash launch_ui.sh`
 
 ### ✅ Package Manager: uv (DECIDED 2026-03-05)
 - **Use:** `uv add <package>`, `uv sync`, `uv run`
-- **Never use:** `pip install` directly — uv manages the venv and pyproject.toml together
-- **Reason:** Project uses uv.lock, pip is not on PATH in this setup
-
-### ✅ Helper Functions Location: `src/` modules (DECIDED 2026-03-06)
-- **Rule:** Helper functions that need unit testing must NOT live in `streamlit_app.py`
-- **Reason:** Importing `streamlit_app` outside a Streamlit context triggers `st.set_page_config()` and crashes
-- **Pattern:** Create `src/module_name.py` → import into `streamlit_app.py` → test via `src.module_name` directly
-- **Existing examples:** `src/file_utils.py` (save, rename, normalise), coverage helpers pending move to `src/coverage_utils.py`
+- **Never use:** `pip install` directly
+- **Reason:** Project uses uv.lock; pip is not on PATH in this setup
 
 ---
 
@@ -111,17 +127,14 @@ cp .env.example .env
 # 6. Start Ollama (in separate terminal)
 ollama serve   # if not already running as a service
 
-# 7. Launch UI (your own site)
+# 7. Launch UI
 bash launch_ui.sh
-
-# 7. Launch UI + mock insurance site (development only)
-bash launch_dev.sh
 ```
 
 ### Running Tests
 ```bash
-# Run all tests
-pytest -v
+# Run all unit tests for the tool itself
+pytest tests/ -v
 
 # Run generated tests only
 pytest generated_tests/ -v
@@ -130,11 +143,27 @@ pytest generated_tests/ -v
 pytest generated_tests/ --headed -v
 ```
 
+### Commit Process
+```bash
+# 1. Lint + type-check
+bash fix.sh        # runs ruff + mypy
+
+# 2. Unit tests
+pytest tests/ -v
+
+# 3. Stage (excluding debug files and cline_tasks/)
+git add -A
+git diff --staged --stat
+
+# 4. Commit (no backticks in message)
+git commit -m "your message here"
+git push
+```
+
 ---
 
 ## File Structure
 
-### Current Structure
 ```
 AI-Playwright-Test-Generator/
 ├── .github/workflows/
@@ -153,27 +182,30 @@ AI-Playwright-Test-Generator/
 ├── screenshots/                        # Screenshot evidence storage
 ├── src/
 │   ├── __init__.py
-│   ├── file_utils.py                   # Save, rename, normalise helpers
-│   ├── llm_client.py                   # ✅ PROTECTED - Ollama API client
-│   └── test_generator.py              # ✅ PROTECTED - Test generation logic
+│   ├── file_utils.py                   # save_generated_test, rename_test_file, normalise_code_newlines
+│   ├── llm_client.py                   # PROTECTED — Ollama API client
+│   ├── page_context_scraper.py         # Headless scraper, returns PageContext
+│   ├── pytest_output_parser.py         # ⚠️ BREAK-1: must exist — parse pytest stdout → RunResult
+│   ├── report_utils.py                 # generate_local_report, generate_jira_report, generate_html_report
+│   └── test_generator.py              # PROTECTED — Test generation logic
 ├── tests/                              # Unit tests FOR the tool itself
-│   ├── test_file_utils.py              # Tests for src/file_utils.py
-│   ├── test_llm_client.py              # Tests for src/llm_client.py
-│   ├── test_normalise_code_newlines.py # Tests for B-002 fix
-│   └── test_test_generator.py          # Tests for src/test_generator.py
+│   ├── test_file_utils.py
+│   ├── test_page_context_scraper.py
+│   ├── test_pytest_output_parser.py
+│   └── test_report_utils.py
 ├── .env                                # Local config (NEVER COMMIT)
 ├── .env.example                        # Template for .env
 ├── .streamlit/
 │   └── config.toml                     # Streamlit theme config
-├── launch_dev.sh                       # Start UI + mock site (dev only)
-├── launch_ui.sh                        # Start UI only (general use)
-├── main.py                             # ✅ PROTECTED - CLI entry point
+├── fix.sh                              # Runs ruff + mypy
+├── launch_dev.sh                       # Start UI + mock server (dev only)
+├── launch_ui.sh                        # Start UI only
+├── main.py                             # PROTECTED — CLI entry point
 ├── pytest.ini                          # Pytest configuration
 ├── pyproject.toml                      # Project deps (managed by uv)
-├── streamlit_app.py                    # Streamlit UI
+├── streamlit_app.py                    # Streamlit UI (primary working file)
 ├── uv.lock                             # Dependency lock file
 ├── BACKLOG.md                          # Feature backlog
-├── FEATURE_SPEC_page_context_scraper.md # AI-001 feature spec
 └── PROJECT_KNOWLEDGE.md               # This file
 ```
 
@@ -181,166 +213,274 @@ AI-Playwright-Test-Generator/
 
 ## Protected Files (DO NOT MODIFY Without Explicit Request)
 
-- `src/llm_client.py` - ✅ Working correctly, handles Ollama API
-- `src/test_generator.py` - ✅ Working correctly, generates and saves tests
-- `main.py` - ✅ Working CLI interface
-- `.github/workflows/ci.yml` - ✅ CI/CD configured and working
+| File | Reason |
+|------|--------|
+| `src/llm_client.py` | Ollama API client — working correctly |
+| `src/test_generator.py` | Core generation logic — working correctly |
+| `main.py` | CLI entry point — referenced in docs as `python -m cli.main` |
+| `.github/workflows/ci.yml` | CI/CD configured and working |
 
-**Rule:** Always ask before modifying these files. If a bug is in one of these files, note it in BACKLOG.md and confirm the fix explicitly before editing.
+**Rule:** Always ask before modifying these files.
 
 ---
 
 ## Forbidden Actions (NEVER DO)
 
-- ❌ **NEVER commit `.env` files** - Contains sensitive configuration
-- ❌ **NEVER commit `__pycache__/` directories** - Python bytecode cache
-- ❌ **NEVER use `pip install`** - Use `uv add` instead
-- ❌ **NEVER use native async format for tests** - pytest sync format is decided
-- ❌ **NEVER remove type hints** - Project standard is full type annotation
-- ❌ **NEVER force push to main** without explicit request
-- ❌ **NEVER put testable helper functions in `streamlit_app.py`** - put them in `src/` instead
+- NEVER commit `.env` files — Contains sensitive configuration
+- NEVER commit `__pycache__/` — Python bytecode cache
+- NEVER use `pip install` — Use `uv add` instead
+- NEVER use native async format for tests — pytest sync format is decided
+- NEVER remove type hints — Full type annotation is project standard
+- NEVER force push to main without explicit request
+- NEVER rename `generated_tests/` — Hardcoded in `main.py` and `src/test_generator.py`
+
+---
+
+## Key Implementation Details
+
+### `streamlit_app.py` — Current Behaviour
+- Sidebar (Settings) is always visible from page load
+- LLM model selector fetches live from `ollama list` via `_get_ollama_models()`
+- `load_dotenv()` is called at startup so `OLLAMA_TIMEOUT` is applied
+- Text area (Paste story tab) is live — no intermediate confirm button
+- URL is auto-normalised: `www.foo.com` becomes `https://www.foo.com` before scraping
+- Scraper result shown in sidebar: success with element count, or warning with error snippet
+- Generated code + Coverage tabs persist after any button click (rendered from `session_state`)
+- Three download buttons always visible: `local.md`, `jira.md`, `standalone.html`
+- ⚠️ **BREAK-2:** Run results panel is blank due to session state wipe — see Known Broken Items
+
+### `src/page_context_scraper.py` — How It Works
+- Runs Playwright in a **subprocess** (bypasses Streamlit's Windows ProactorEventLoop issue)
+- Returns `tuple[PageContext | None, str | None]` — always unpack as `ctx, err = scrape_page_context(url)`
+- Failure is non-fatal — generation continues without page context if scraper fails
+- `PageContext.to_prompt_block()` formats elements as plain text for LLM prompt injection
+
+### `src/pytest_output_parser.py` — How It Works
+- `parse_pytest_output(raw: str) -> RunResult` is the single public entry point
+- Parses PASSED/FAILED lines with regex, extracts inline error messages
+- Collects totals from the `N passed, M failed in Xs` summary line
+- `RunResult.raw_output` preserves the original string for the expander panel in the UI
+- **No Streamlit imports** — safe to import in unit tests without triggering `st.set_page_config()`
+
+### `src/report_utils.py` — Report Generators
+- `generate_local_report(rows)` → `local.md` with relative screenshot paths
+- `generate_jira_report(rows)` → `jira.md` with `!filename.png|thumbnail!` syntax
+- `generate_html_report(rows)` → `standalone.html` with base64-embedded images
+- All three expect a `list[dict]` built by `_build_report_dicts()` in `streamlit_app.py`
+
+### `src/file_utils.py` — Key Functions
+- `save_generated_test(test_code, story_text, base_url)` — saves to `generated_tests/`
+- `rename_test_file(old_path, new_stem)` — renames with validation
+- `normalise_code_newlines(code)` — normalises `\r\n` and `\r` to `\n`
+
+### Coverage Analysis — How It Works
+After generation, `streamlit_app.py`:
+1. Extracts test function names with `re.findall(r"^def (test_\w+)", code, re.MULTILINE)`
+2. For each criterion, matches by `test_NN_` prefix then falls back to keyword overlap
+3. Builds `RequirementCoverage` objects stored in `st.session_state.coverage_analysis`
+4. `display_coverage()` renders the Coverage tab from session state
+
+---
+
+## Recurring Bugs to Watch For (Cline / LLM Loop Patterns)
+
+These have appeared multiple times — check for them after any AI-assisted edit:
+
+| Bug | Symptom | Fix |
+|-----|---------|-----|
+| Ambiguous variable `l` | ruff E741 | Rename to `line` in list comprehensions |
+| `tr` redefined in inner loop | mypy error | Use `found` or `match` for inner `run_map.get()` result |
+| `scrape_page_context` not unpacked | TypeError | Always use `ctx, err = scrape_page_context(url)` |
+| `base_url.split(':')[1]` | list index out of range | Use `re.sub(r"[^\w]", "_", base_url)` for slugs |
+| Tabs inside button block | Content disappears on rerun | Render from `session_state` outside button block |
+| `import re` inside function body | ruff E402 | Move to top-level imports |
+| Invented imports | ModuleNotFoundError | Verify import exists before accepting output |
+| Duplicate function definitions | SyntaxError or wrong behaviour | Rebuild from last known-good output |
+| Session state wipe pattern | Results blank after button click | Never set state key to None/empty after setting real value |
+
+**Recovery strategy:** When Cline corrupts a file, rebuild from the last known-good output and re-apply changes cleanly. Do not attempt further incremental edits on a corrupted file.
 
 ---
 
 ## Common Issues & Solutions
 
-### Issue: venv not activating / wrong environment
-**Symptoms:** `(vs-projects)` shown instead of `(playwright-test-generator)`, pip not found
-**Cause:** Old venv from renamed project, or wrong terminal
-**Solution:**
+### LLM Timeout / Empty Response
+**Symptoms:** "LLM returned empty response", debug expander shows empty raw response  
+**Cause:** `OLLAMA_TIMEOUT` too low (default 60s), or `.env` not loaded  
+**Solution:** Set `OLLAMA_TIMEOUT=300` in `.env`; confirm `load_dotenv()` is called before `LLMClient` initialises
+
+### Generated Tests Fail With Wrong Locators
+**Symptoms:** `AssertionError: Locator expected to be visible`, invented element names like `username_input`  
+**Cause:** Page scraper failed silently because URL was missing `https://`  
+**Solution:** Ensure Base URL starts with `https://` — the app now auto-adds it. Check sidebar for scraper warning.
+
+### venv not activating / wrong environment
 ```bash
 rm -rf .venv
 uv sync
-source .venv/Scripts/activate   # Git Bash / Windows
+source .venv/Scripts/activate
 ```
 
-### Issue: LLM Timeout / Empty Response
-**Symptoms:** "LLM returned empty response" in pipeline log
-**Cause:** OLLAMA_TIMEOUT too low (default 60s), or .env not loading
-**Solution:**
-- Set `OLLAMA_TIMEOUT=300` in `.env`
-- Confirm `.env` is in project root
-- `load_dotenv()` must be called before LLMClient initialises
+### mypy cache corruption
+**Symptoms:** mypy reports errors on files that are clean  
+**Solution:** `rm -rf .mypy_cache` then re-run
 
-### Issue: Generated Tests Have SyntaxError on Import Lines
-**Symptoms:** `SyntaxError` on line 1, imports concatenated e.g. `from playwright.sync_api import Pageimport pytest`
-**Cause:** LLM response has newlines stripped in the extraction pipeline (B-002)
-**Solution:** Fixed — `normalise_code_newlines()` now applied automatically after generation
-
-### Issue: Locator Resolves to Multiple Elements
-**Symptoms:** `strict mode violation: get_by_label("X") resolved to 2 elements`
-**Cause:** Same label exists on multiple forms (e.g. vehicle form + add driver form)
-**Solution:** Use specific ID locator: `page.locator("#specificId")` instead of `get_by_label`
-**Long-term fix:** AI-001 page context scraper will detect ambiguous labels before generation
-
-### Issue: Pre-commit fails with "files were modified by this hook"
-**Symptoms:** ruff or ruff-format modifies files then commit aborts
-**Cause:** Pre-commit auto-fixes the files but can't commit mid-run
-**Solution:** `git add -A` then `git commit` again — the fixes are already applied
-
-### Issue: mypy `no-redef` error on type annotation
-**Symptoms:** `error: Name "x" already defined on line N`
-**Cause:** Variable annotated inside a `try` block then re-annotated outside it
-**Solution:** Declare the variable with the wider type (`str | None = None`) before the `try` block
-
-### Issue: Last 2 Criteria Get No Tests
-**Symptoms:** User story with 4+ acceptance criteria — only first 2-3 tests generated, last 2-3 criteria have no tests
-**Cause:** LLM truncation of response or failure to iterate through all criteria
-**Solution:** Fixed in `streamlit_app.py` — `generate_test_for_story()` now includes explicit prompt:
-- Criteria enumerated with line numbers: `1. Criterion 1`, `2. Criterion 2`, etc.
-- Clear instruction: "generate ONE test per criterion"
-- Total count displayed: "(Total: N criteria)"
-- Critical requirement section: "DO NOT skip, combine, or omit any criteria"
-- Final warning: "DO NOT skip the last criteria — all N criteria must have tests"
-
-### Issue: Run/Download Buttons Clear Page
-**Symptoms:** After generating test, clicking "Run Now" or download buttons causes page to clear, shows only user story input
-**Cause:** Button click triggers `st.rerun()` without preserving test output from local variables
-**Solution:** Fixed — output section now reads from `st.session_state` using `.get()` method:
-```python
-test_code = st.session_state.get("generated_test")
-saved_path = st.session_state.get("saved_test_path")
-story_for_coverage = st.session_state.get("last_story", "")
+### Port 8501 already in use
+```bash
+taskkill //F //IM streamlit.exe    # PowerShell
+pkill -f streamlit                  # Git Bash
 ```
-This persists data across reruns, preventing page clearing.
 
-### Issue: Pre-commit fails with "files were modified by this hook"
-- [x] Verify the prompt fix actually addresses "last 2 criteria get no tests"
-- [x] Read streamlit_app.py sections about the generate function and prompt
-- [x] Confirm main() output rendering changes are correct
-- [x] Update PROJECT_KNOWLEDGE.md with relevant information about the fixes
-</task_progress>
-
-### Issue: `bash` command not found
-**Symptoms:** Running `bash launch_ui.sh` fails
-**Cause:** You're in PowerShell, not Git Bash
-**Solution:** Switch terminal to Git Bash, or run `uv run streamlit run streamlit_app.py`
-
-### Issue: Port 8501 already in use
-**Symptoms:** `Port 8501 is not available`
-**Cause:** Previous Streamlit instance still running
-**Solution:** `taskkill //F //IM streamlit.exe` (PowerShell) or `pkill -f streamlit` (Git Bash)
-
-### Issue: Ollama "address already in use"
-**Symptoms:** `Error: listen tcp 127.0.0.1:11434: bind: Only one usage`
-**Cause:** Ollama is already running — this is fine, ignore the error
+### Ollama "address already in use"
+Ollama is already running — this is fine, ignore the error.
 
 ---
 
 ## Models Available Locally
+
 | Model | Size | Use |
 |-------|------|-----|
 | `qwen3.5:35b` | 23 GB | Best quality output, ~2 min response |
-| `qwen2.5-coder:1.5b-base` | 986 MB | Fast testing, ~6 sec response, simpler output |
+| `qwen2.5-coder:1.5b-base` | 986 MB | Fast testing, ~6 sec, simpler output |
 
 ---
 
 ## Implementation Roadmap
 
-### ✅ Phase 0: Setup & Cleanup (Complete — 2026-03-05)
-- venv issues resolved, uv adopted as package manager
-- pytest.ini configured with playwright settings
-- CI/CD working
+### Completed
 
-### ✅ Phase UI: Streamlit Interface (Complete — 2026-03-05)
-- `streamlit_app.py` built and running
-- Dynamic Ollama model list from `ollama list`
-- URL validation, pipeline log, all 3 report tabs, ZIP download
-- `.env` loading fixed with explicit path
+| Phase | Status |
+|-------|--------|
+| Phase 0: Setup & Cleanup | Done |
+| Phase UI: Streamlit Interface | Done |
+| AI-001: Page Context Scraper | Done |
+| AI-008: Run Results Parser | ⚠️ Partial — test file exists, impl missing (BREAK-1) |
+| R-001 to R-006: Feature Recovery | Done (2026-03-13) |
 
-### ✅ Phase Save/Review/Run: Workflow (Complete — 2026-03-06)
-- **Phase A:** Auto-save to `generated_tests/` with timestamped slug filename, rename UI
-- **Phase B:** Test function parser, criteria extractor, keyword-based coverage mapping, coverage metrics table with colour-coded status badges
-- **Phase C:** `run_playwright_test()` via pytest subprocess, pass/fail display, collapsible output
-- **Bug fixes:** B-001 (async→sync), B-002 (newline normalisation), B-003 (auto-save), B-005 (launch scripts split)
+### R-001 to R-006 Detail
 
-### 🚧 Phase 2: Page Context Scraper (Next — AI-001)
-**Goal:** Visit target URL before generation, inject real DOM selectors into LLM prompt
-**Spec:** See `FEATURE_SPEC_page_context_scraper.md`
-**Files to Create:**
-- `src/page_context_scraper.py`
-- `tests/test_page_context_scraper.py`
+| ID | Feature |
+|----|---------|
+| R-001 | Ollama model selector in sidebar |
+| R-002 | Pipeline log |
+| R-003 | `normalise_code_newlines()` on generated code |
+| R-004 | Page context scraping wired into generation flow |
+| R-005 | Three report download buttons |
+| R-006 | Rename test file UI |
 
-### 🚧 Phase 1: Input Format Flexibility (AI-002)
-**Goal:** Move criteria extraction out of `streamlit_app.py` into a proper tested module
-**Files to Create:**
-- `src/user_story_parser.py`
-- `tests/test_user_story_parser.py`
+### Immediate Fixes Required
 
-### 🚧 Coverage Utils Extract (AI-005)
-**Goal:** Move coverage dataclasses and helpers from `streamlit_app.py` to `src/coverage_utils.py`
-**Files to Create:**
-- `src/coverage_utils.py`
-- `tests/test_coverage_utils.py`
+| ID | Fix | Effort |
+|----|-----|--------|
+| BREAK-1 | Add `src/pytest_output_parser.py` | ~30 min |
+| BREAK-2 | Delete 2-line session state wipe in `display_run_button()` | 2 min |
 
-### 🚧 Phase 3: Evidence Collection
-- `src/screenshot_manager.py`
-- `reports/jira_reporter.py`
-- `reports/evidence_bundle_generator.py`
+### Backlog (Next — after breaks fixed)
 
-### 🚧 Phase 4: Test Orchestration
-- `src/test_suite_executor.py`
-- `src/result_aggregator.py`
+| ID | Feature |
+|----|---------|
+| AI-002 | User story parser (`src/user_story_parser.py`) — TDD with fixtures |
+| AI-003 | Update `.env.example` with `OLLAMA_TIMEOUT=300` |
+| AI-004 | Phase C UI gaps (env dropdown, re-run failed, screenshot viewer) |
+| AI-005 | Extract coverage helpers to `src/coverage_utils.py` |
+| AI-006 | Create `tests/fixtures/user_stories/` with 10-15 format examples |
+| AI-007 | Remove `_generate_test_content()` from CLI orchestrator |
+
+---
+
+## Appendix — `src/pytest_output_parser.py` (canonical source)
+
+If the file is missing, create it with this exact content:
+
+```python
+"""
+pytest_output_parser.py — Parse raw pytest stdout into structured data.
+
+Converts verbose pytest -v output into typed RunResult / TestResult objects
+that the Streamlit UI can render as a readable results table.
+
+No Streamlit imports — fully unit testable in isolation.
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+
+
+_PASSED_RE = re.compile(r"(\S+\.py)::(\S+)\s+PASSED")
+_FAILED_RE = re.compile(r"(\S+\.py)::(\S+)\s+FAILED")
+_DURATION_RE = re.compile(
+    r"(\d+) passed(?:,\s*(\d+) failed)? in ([\d.]+)s"
+)
+_ERROR_RE = re.compile(r"FAILED \S+::(\S+) - (.+)")
+
+
+@dataclass
+class TestResult:
+    name: str
+    status: str          # "passed" | "failed" | "error"
+    duration: float      # seconds; 0.0 when not available
+    error_message: str
+    file_path: str
+
+
+@dataclass
+class RunResult:
+    results: list[TestResult] = field(default_factory=list)
+    total: int = 0
+    passed: int = 0
+    failed: int = 0
+    errors: int = 0
+    duration: float = 0.0
+    raw_output: str = ""
+
+
+def parse_pytest_output(raw: str) -> RunResult:
+    run = RunResult(raw_output=raw)
+    results_by_name: dict[str, TestResult] = {}
+
+    for line in raw.splitlines():
+        passed_match = _PASSED_RE.search(line)
+        if passed_match:
+            file_path, name = passed_match.group(1), passed_match.group(2)
+            results_by_name[name] = TestResult(
+                name=name, status="passed", duration=0.0,
+                error_message="", file_path=file_path,
+            )
+            continue
+
+        failed_match = _FAILED_RE.search(line)
+        if failed_match:
+            file_path, name = failed_match.group(1), failed_match.group(2)
+            results_by_name[name] = TestResult(
+                name=name, status="failed", duration=0.0,
+                error_message="", file_path=file_path,
+            )
+            continue
+
+        error_match = _ERROR_RE.search(line)
+        if error_match:
+            name, message = error_match.group(1), error_match.group(2)
+            if name in results_by_name:
+                results_by_name[name].error_message = message
+            continue
+
+        duration_match = _DURATION_RE.search(line)
+        if duration_match:
+            run.passed = int(duration_match.group(1))
+            run.failed = int(duration_match.group(2) or 0)
+            run.duration = float(duration_match.group(3))
+
+    run.results = list(results_by_name.values())
+    run.total = len(run.results)
+
+    if run.passed + run.failed == 0 and run.total > 0:
+        run.passed = sum(1 for r in run.results if r.status == "passed")
+        run.failed = sum(1 for r in run.results if r.status == "failed")
+
+    return run
+```
 
 ---
 
@@ -357,11 +497,13 @@ This persists data across reruns, preventing page clearing.
 ## Version History
 
 - **2026-03-03:** Initial creation, Phase 1-4 roadmap defined, architecture decisions finalised
-- **2026-03-05:** Session 2 — Streamlit UI built and connected, venv issues resolved, uv adopted, mock site updated with Add Driver form, pytest.ini updated, BACKLOG.md created
-- **2026-03-06:** Session 3 — Save/Review/Run workflow (Phases A/B/C), B-001/002/003/005 closed, launch scripts split, pre-commit issues resolved
+- **2026-03-05:** Session 2 — Streamlit UI built, uv adopted, mock site updated, BACKLOG.md created
+- **2026-03-12:** Sessions 3-7 — AI-001 page context scraper, coverage mapping, run results parser, multiple bug fixes, feature recovery plan identified
+- **2026-03-13:** Session 8 — R-001 through R-006 implemented, Cline loop recovery, load_dotenv fix, URL normalisation, content persistence fix, download crash fix
+- **2026-03-16:** Session 9 — BREAK-1/BREAK-2 identified: `src/pytest_output_parser.py` missing (CI blocker), session state wipe bug located in `display_run_button()`
 
 ---
 
-*Last Updated: 2026-03-06*
-*Project Status: Active Development*
-*Current Phase: Page Context Scraper (AI-001) next*
+*Last Updated: 2026-03-16*
+*Project Status: CI broken — BREAK-1 and BREAK-2 must be fixed before any backlog work*
+*Current Phase: Fix CI, then backlog AI-002 through AI-007*
