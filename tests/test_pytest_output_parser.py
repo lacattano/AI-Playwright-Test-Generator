@@ -240,3 +240,64 @@ t.py::test_b FAILED [100%]
 
         assert result.passed == 1
         assert result.failed == 1
+
+
+class TestB006BannerRegression:
+    """B-006: Parser must report correct totals from the FINAL summary line.
+
+    The bug was that an intermediate '1 passed' match would overwrite the
+    real totals from the final summary line.
+    """
+
+    def test_b006_mixed_pass_fail_banner_correct(self) -> None:
+        """Ensure parser uses final summary when intermediate lines could match."""
+        raw = """============================= test session starts =============================
+collected 4 items
+
+generated_tests/test_flow.py::test_01_login PASSED [ 25%]
+generated_tests/test_flow.py::test_02_dashboard FAILED [ 50%]
+generated_tests/test_flow.py::test_03_settings FAILED [ 75%]
+generated_tests/test_flow.py::test_04_logout FAILED [100%]
+
+=================================== FAILURES ===================================
+____________________________ test_02_dashboard _____________________________
+generated_tests/test_flow.py:12: in test_02_dashboard
+    assert page.locator("#dash").is_visible()
+AssertionError: assert False == True
+____________________________ test_03_settings ______________________________
+generated_tests/test_flow.py:20: in test_03_settings
+    assert page.locator("#settings-panel").is_visible()
+AssertionError: assert False == True
+____________________________ test_04_logout ________________________________
+generated_tests/test_flow.py:28: in test_04_logout
+    assert page.locator("#logout-btn").is_visible()
+AssertionError: assert False == True
+=========================== short test summary info ===========================
+FAILED generated_tests/test_flow.py::test_02_dashboard - AssertionError: assert False == True
+FAILED generated_tests/test_flow.py::test_03_settings - AssertionError: assert False == True
+FAILED generated_tests/test_flow.py::test_04_logout - AssertionError: assert False == True
+========================= 1 passed, 3 failed in 5.23s ========================="""
+
+        result = parse_pytest_output(raw)
+
+        # B-006: these must match the FINAL summary line, not an intermediate match
+        assert result.passed == 1, f"Expected 1 passed, got {result.passed}"
+        assert result.failed == 3, f"Expected 3 failed, got {result.failed}"
+        assert result.total == 4
+        assert result.duration == pytest.approx(5.23, abs=0.01)
+
+    def test_b006_all_fail_banner(self) -> None:
+        """Ensure parser works when ALL tests fail (no 'passed' in summary)."""
+        raw = """============================= test session starts =============================
+collected 2 items
+
+t.py::test_a FAILED [ 50%]
+t.py::test_b FAILED [100%]
+
+=========================== 2 failed in 2.10s ==========================="""
+
+        result = parse_pytest_output(raw)
+
+        assert result.passed == 0
+        assert result.failed == 2
+        assert result.duration == pytest.approx(2.10, abs=0.01)

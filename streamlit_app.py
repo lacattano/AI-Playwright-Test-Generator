@@ -25,7 +25,7 @@ from dotenv import load_dotenv
 
 from src.coverage_utils import build_coverage_analysis
 from src.llm_errors import LLMError, LLMErrorType, LLMResult
-from src.page_context_scraper import scrape_page_context
+from src.page_context_scraper import scrape_multiple_pages, scrape_page_context
 from src.prompt_utils import get_streamlit_system_prompt_template
 from src.pytest_output_parser import RunResult, TestResult, parse_pytest_output
 from src.report_utils import generate_jira_report, generate_local_report
@@ -184,12 +184,6 @@ def display_coverage(coverage_analysis: dict[str, Any] | None = None, run_result
         use_container_width=True,
         hide_index=True,
     )
-
-    # Show error details for failed tests when results are available
-    if run_result is not None:
-        for result in run_result.results:
-            if result.status == "failed" and result.error_message:
-                st.warning(f"⚠️ **{result.name}**\n\n`{result.error_message}`")
 
 
 def _generate_html_report(coverage_analysis: dict | None = None, run_result: RunResult | None = None) -> str:
@@ -413,6 +407,7 @@ def parse_feature_text(content: str) -> tuple[list[str], list[str]]:
 def main() -> None:
     """Main function to run the Streamlit application."""
     st.set_page_config(page_title="AI Test Generator", page_icon="🤖", layout="wide")
+    init_session_state()
 
     st.title("🤖 AI-Powered Playwright Test Generator")
     st.markdown("---")
@@ -423,6 +418,23 @@ def main() -> None:
         value="https://",
         help="Full URL including https:// — used for page scraping and test navigation",
     )
+
+    # ── AI-009: Additional page URLs for multi-page scraping ──────────────────
+    with st.expander("➕ Add more pages to scrape (optional)", expanded=False):
+        additional_urls_raw = st.text_area(
+            "Additional page URLs (one per line)",
+            placeholder=(
+                "https://www.example.com/inventory.html\n"
+                "https://www.example.com/cart.html\n"
+                "https://www.example.com/checkout.html"
+            ),
+            height=100,
+            key="additional_urls",
+            help="Enter one URL per line. The scraper will visit each page and collect elements for the LLM.",
+        )
+    additional_urls: list[str] = [
+        u.strip() for u in additional_urls_raw.splitlines() if u.strip().startswith(("http://", "https://"))
+    ]
 
     # ── Sidebar — always visible ──────────────────────────────────────────────
     st.sidebar.header("⚙️ Settings")
@@ -512,16 +524,41 @@ def main() -> None:
             scrape_url = "https://" + scrape_url
 
         page_context_block = ""
-        with st.spinner("🔍 Scraping page context from URL..."):
-            try:
-                ctx, scrape_err = scrape_page_context(scrape_url)
-                if ctx:
-                    page_context_block = ctx.to_prompt_block()
-                    st.sidebar.success(f"✅ Scraped {ctx.element_count()} elements from page")
-                elif scrape_err:
-                    st.sidebar.warning(f"⚠️ Scraper: {scrape_err[:120]}")
-            except Exception as e:
-                st.sidebar.warning(f"⚠️ Scraper failed: {e} — generating without page context")
+        if additional_urls:
+            # AI-009: Multi-page scraping
+            total_pages = 1 + len(additional_urls)
+            with st.spinner(f"🔍 Scraping {total_pages} pages..."):
+                try:
+                    multi_ctx, scraper_state = scrape_multiple_pages(
+                        base_url=scrape_url,
+                        additional_urls=additional_urls,
+                    )
+                    if not multi_ctx.is_empty:
+                        page_context_block = multi_ctx.to_prompt_block()
+                        st.sidebar.success(
+                            f"✅ Scraped {multi_ctx.success_count}/{total_pages} pages "
+                            f"— {multi_ctx.total_elements} elements total"
+                        )
+                        for pg in multi_ctx.pages:
+                            st.sidebar.caption(f"  • {pg.url} → {pg.element_count()} elements")
+                    if scraper_state.failed_urls:
+                        st.sidebar.warning(f"⚠️ Failed to scrape: {', '.join(scraper_state.failed_urls)}")
+                    if multi_ctx.is_empty:
+                        st.sidebar.warning("⚠️ All pages failed — generating without page context")
+                except Exception as e:
+                    st.sidebar.warning(f"⚠️ Multi-page scraper failed: {e} — generating without page context")
+        else:
+            # Single-page scraping (original behaviour)
+            with st.spinner("🔍 Scraping page context from URL..."):
+                try:
+                    ctx, scrape_err = scrape_page_context(scrape_url)
+                    if ctx:
+                        page_context_block = ctx.to_prompt_block()
+                        st.sidebar.success(f"✅ Scraped {ctx.element_count()} elements from page")
+                    elif scrape_err:
+                        st.sidebar.warning(f"⚠️ Scraper: {scrape_err[:120]}")
+                except Exception as e:
+                    st.sidebar.warning(f"⚠️ Scraper failed: {e} — generating without page context")
 
         prompt_template = f"""
 ### PAGE CONTEXT (If available):

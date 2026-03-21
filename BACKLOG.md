@@ -1,7 +1,7 @@
 # BACKLOG.md
 ## AI Playwright Test Generator
 
-Last updated: 2026-03-16
+Last updated: 2026-03-21
 
 ---
 
@@ -19,21 +19,19 @@ Last updated: 2026-03-16
 ### B-005 — `launch_ui.sh` starts mock server (not appropriate for general use)
 **Fixed:** Mock server startup moved to `launch_dev.sh`.
 
----
+### B-006 — Parser banner wrong when mix of pass/fail
+**Fixed (Session 10):** Current parser implementation correctly uses last summary-line match.
+Regression tests added: `test_b006_mixed_pass_fail_banner_correct`, `test_b006_all_fail_banner`.
 
-## 🔴 Blockers (Fix Before Anything Else)
+### B-007 — Error panels duplicated in results view
+**Fixed (Session 10):** Removed duplicate error rendering loop from `display_coverage()`. Errors
+now render only in `display_run_button()`.
 
 ### BREAK-1 — `src/pytest_output_parser.py` missing (CI BLOCKER)
-**Symptom:** `pytest tests/ -v` fails with `ModuleNotFoundError: No module named 'src.pytest_output_parser'`  
-**Cause:** Implementation file was never committed. `tests/test_pytest_output_parser.py` imports it.  
-**Fix:** Create `src/pytest_output_parser.py` — canonical content in `PROJECT_KNOWLEDGE.md` appendix and attached as a file output from Session 9.  
-**Impact:** ALL CI tests fail until this is added.
+**Fixed (Session 9):** `src/pytest_output_parser.py` committed.
 
 ### BREAK-2 — Session state wipe blanks run results panel
-**Symptom:** "Run Now" executes but results panel is always blank  
-**Cause:** Two lines in `display_run_button()` reset `last_run_success` and `last_run_output` to `None`/`""` immediately after setting them  
-**Fix:** Delete the two reset lines in `streamlit_app.py` — see `FIX_PLAN_session9.md`  
-**Impact:** Run results never display after execution
+**Fixed (Session 9):** Reset lines removed from `display_run_button()`.
 
 ---
 
@@ -44,22 +42,6 @@ Last updated: 2026-03-16
 **Fix (short term):** Use `page.locator("#specificId")` instead of `get_by_label`  
 **Fix (long term):** Multi-page scraping (AI-009) injects real selectors  
 **Priority:** Medium — AI-009 should prevent recurrence
-
-### B-006 — Parser banner wrong when mix of pass/fail
-**Symptom:** Banner reads "All 1 tests passed" when actual result is 1 pass, 3 fail  
-**Cause:** `DURATION_RE` in `pytest_output_parser.py` matches `1 passed` from somewhere in  
-the output before reaching the final summary line — overwrites the real totals  
-**Fix:** Only match the duration line when it appears after `=====` separator, or match  
-the last occurrence of the pattern rather than the first  
-**Priority:** High — misleads the user about test results
-
-### B-007 — Error panels duplicated in results view
-**Symptom:** Failed test error messages appear twice — once above the coverage table,  
-once below it  
-**Cause:** `display_run_button()` renders errors, then the coverage section renders them  
-again independently  
-**Fix:** Audit `streamlit_app.py` — error rendering should happen in exactly one place  
-**Priority:** Medium — visual noise, confusing
 
 ### B-008 — Run Status column shows ⏳ for all rows (never updates)
 **Symptom:** Coverage x Run Results table shows pending icon for every row even after  
@@ -75,38 +57,29 @@ name matching logic — see FEATURE_SPEC_run_results.md for the intended integra
 
 ## 🟡 Active Improvements (Prioritised)
 
-### AI-009 — Multi-Page Scraping ⭐ CRITICAL
+### AI-009 — Multi-Page Scraping ⭐ Phase A COMPLETE
 **What:** Allow the scraper to collect elements from multiple pages in a user flow,  
 not just the base URL  
-**Why:** Single-page scraping means every test step after page 1 uses guessed  
-selectors — core value of the tool is broken for any multi-step flow  
-**Spec:** `FEATURE_SPEC_multi_page_scraping.md`  
-**Phase A (do first):** User provides additional URLs in the UI — scraper visits all  
+**Phase A (complete — Session 10):** Backend `scrape_multiple_pages()`, `MultiPageContext`,  
+`ScraperState` in `src/page_context_scraper.py`. UI integrated in `streamlit_app.py` with  
+additional URLs text area, conditional scraping, per-page sidebar feedback.  
 **Phase B (deferred):** Scraper follows the flow automatically using story-inferred actions  
-**New files:** None — extends `src/page_context_scraper.py`  
-**Modified:** `src/page_context_scraper.py`, `streamlit_app.py`  
-**Priority:** 🔴 Critical — implement after BREAK-1 and BREAK-2 fixed
+**Spec:** `FEATURE_SPEC_multi_page_scraping.md`  
+**Priority:** Phase B is deferred — see feature spec
 
 ### AI-002 — User Story Parser Module
 **What:** Move criteria extraction into `src/user_story_parser.py` with proper  
 format support: Gherkin, Jira AC bullets, numbered, free-form  
 **Why:** Currently lives in `streamlit_app.py` — untestable without Streamlit crash  
 **New files:** `src/user_story_parser.py`, `tests/test_user_story_parser.py`  
-**Priority:** High — do after AI-009 Phase A
+**Priority:** High — next up
 
 ### AI-005 — Move coverage helpers to `src/coverage_utils.py`
-**What:** Extract `TestFunction`, `RequirementCoverage`, `parse_test_functions()`,  
-`extract_criteria_from_user_story()`, `map_tests_to_criteria()`, `calculate_coverage()`  
-out of `streamlit_app.py`  
+**What:** Extract remaining coverage helpers out of `streamlit_app.py`  
 **Why:** Cannot be unit tested without triggering Streamlit import crash  
-**New files:** `src/coverage_utils.py`, `tests/test_coverage_utils.py`  
+**Note:** `src/coverage_utils.py` and `tests/test_coverage_utils.py` already exist with  
+core functions extracted. Remaining work: verify no coverage logic is still in `streamlit_app.py`  
 **Priority:** High — also required to properly fix B-008
-
-### AI-003 — Update `.env.example` for OLLAMA_TIMEOUT
-**What:** Set `OLLAMA_TIMEOUT=300` as the default in `.env.example` and README  
-**Why:** Default of 60s causes timeout failures on any model larger than 9b.  
-New users following the README hit this immediately.  
-**Priority:** Medium — 2-minute fix, high impact for new users and the 27b model
 
 ### AI-004 — Phase C Run Now gaps
 **What:** Three gaps in the Run Now workflow:  
@@ -174,3 +147,13 @@ New users following the README hit this immediately.
 - AI-009 (multi-page scraping) added as critical priority
 - `FEATURE_SPEC_multi_page_scraping.md` created
 - AI-003 confirmed still open (27b model hitting timeout despite .env at 300 — load_dotenv timing issue suspected)
+
+### Session 10 (2026-03-21)
+- B-007 fixed — removed duplicate error rendering from `display_coverage()`
+- B-006 verified working, 2 regression tests added to `test_pytest_output_parser.py`
+- AI-003 closed — `OLLAMA_TIMEOUT=300` added to `.env.example`
+- AI-009 Phase A complete — multi-page scraper wired into `streamlit_app.py`
+  - Additional URLs text area with expander
+  - Conditional single/multi-page scraping
+  - Per-page sidebar feedback
+- 121 tests passing, ruff clean, mypy clean

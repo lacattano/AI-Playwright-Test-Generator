@@ -1,8 +1,8 @@
 # FEATURE SPEC: Multi-Page Scraping
 ## AI Playwright Test Generator — AI-009
 
-**Status:** Proposed  
-**Priority:** 🔴 Critical — core value of the tool depends on this  
+**Status:** Phase A Complete (Session 10 — 2026-03-21)  
+**Priority:** Phase B deferred — core multi-page scraping is functional  
 **Fits into:** Phase 2 (User Story Intelligence) — extends AI-001  
 **Modified files:** `src/page_context_scraper.py`  
 **Protected files:** `src/llm_client.py`, `src/test_generator.py`, `main.py`  

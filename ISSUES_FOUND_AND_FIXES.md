@@ -179,3 +179,4 @@ done before testing. Issues introduced:
 | 1.2.0 | 2026-03-04 | Pre-commit configuration with ruff, automated code quality checks |
 | 1.3.0 | 2026-03-06 | Streamlit UI, Phase A/B/C (save/coverage/run), B-001/002/003/005 fixed |
 | 1.4.0 | 2026-03-07 | Page context scraper (AI-001), coverage mapping fix, Jira download, git hygiene |
+| 1.5.0 | 2026-03-21 | B-006/007 fixed, AI-003 closed, AI-009 Phase A complete (multi-page scraper UI) |
