@@ -437,3 +437,59 @@ class TestExtractContext:
         assert context.page_title == "Mock Page Title"
         assert context.h1_text == "Welcome to the Site"
         assert len(context.elements) > 0
+
+    def test_extract_options_from_select_and_combobox(self, mock_page: MagicMock) -> None:
+        """Test that options are extracted from <select> and [role='combobox']."""
+        # Mock <select> element
+        mock_select = MagicMock()
+        mock_select.is_visible.return_value = True
+        mock_select.get_attribute.side_effect = lambda attr: "my-select" if attr == "id" else None
+
+        # Mock <option> elements inside <select>
+        opt1 = MagicMock()
+        opt1.inner_text.return_value = "Option 1"
+        opt2 = MagicMock()
+        opt2.inner_text.return_value = "Option 2"
+        mock_select.query_selector_all.return_value = [opt1, opt2]
+
+        # Mock combobox element
+        mock_combo = MagicMock()
+        mock_combo.is_visible.return_value = True
+
+        def combo_attr(attr: str) -> str | None:
+            if attr == "role":
+                return "combobox"
+            if attr == "id":
+                return "my-combo"
+            return None
+
+        mock_combo.get_attribute.side_effect = combo_attr
+        mock_combo.inner_text.return_value = "Custom Dropdown"
+
+        # Mock <div role="option"> inside combobox
+        opt3 = MagicMock()
+        opt3.inner_text.return_value = "Apple"
+        opt4 = MagicMock()
+        opt4.inner_text.return_value = "Banana"
+        mock_combo.query_selector_all.return_value = [opt3, opt4]
+
+        def mock_query_all(selector: str) -> list[MagicMock]:
+            if selector == "select":
+                return [mock_select]
+            elif selector == "[role='combobox'], [role='listbox']":
+                return [mock_combo]
+            return []
+
+        mock_page.query_selector_all.side_effect = mock_query_all
+
+        context = _extract_context(mock_page, "http://example.com")
+
+        # Verify select
+        select_el = next((e for e in context.elements if e.tag == "select"), None)
+        assert select_el is not None
+        assert select_el.options == ["Option 1", "Option 2"]
+
+        # Verify combobox
+        combo_el = next((e for e in context.elements if e.tag == "combobox"), None)
+        assert combo_el is not None
+        assert combo_el.options == ["Apple", "Banana"]

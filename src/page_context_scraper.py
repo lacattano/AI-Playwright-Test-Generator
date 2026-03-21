@@ -42,6 +42,7 @@ class PageElement:
     visible_text: str | None = None  # innerText (buttons/links)
     input_type: str | None = None  # text, password, email, checkbox, etc.
     is_required: bool = False
+    options: list[str] | None = None  # Available options for <select> and combobox
     recommended_locator: str | None = None  # pre-built Playwright locator
 
 
@@ -94,6 +95,7 @@ class PageContext:
                 visible_text=e.get("visible_text"),
                 input_type=e.get("input_type"),
                 is_required=e.get("is_required", False),
+                options=e.get("options"),
                 recommended_locator=e.get("recommended_locator"),
             )
             for e in data.get("elements", [])
@@ -111,6 +113,7 @@ class PageContext:
                     visible_text=e.get("visible_text"),
                     input_type=e.get("input_type"),
                     is_required=e.get("is_required", False),
+                    options=e.get("options"),
                     recommended_locator=e.get("recommended_locator"),
                 )
                 for e in form
@@ -153,6 +156,8 @@ class PageContext:
                 parts.append(f'visible="{el.visible_text}"')
             if el.is_required:
                 parts.append("required=true")
+            if el.options:
+                parts.append(f"options={el.options}")
             if el.recommended_locator:
                 parts.append(f"→ {el.recommended_locator}")
             lines.append("  ".join(parts))
@@ -321,7 +326,7 @@ def _build_recommended_locator(el_tag: str, el: dict[str, str | None]) -> str:
     if el.get("name"):
         return f"page.locator(\"[name='{el['name']}']\")"
     if el.get("label"):
-        if el_tag in ("button", "a", "input", "select", "textarea"):
+        if el_tag in ("button", "a", "input", "select", "textarea", "combobox", "listbox"):
             return f'page.get_by_role("{el_tag}", name="{el["label"]}")'
         return f'page.get_by_label("{el["label"]}")'
     if el.get("visible_text"):
@@ -606,6 +611,14 @@ def _extract_context(page: Page, url: str) -> PageContext:
     for handle in page.query_selector_all("select"):
         if not handle.is_visible():
             continue
+
+        # Extract <option> texts
+        options = []
+        for opt in handle.query_selector_all("option"):
+            opt_text = opt.inner_text().strip()
+            if opt_text:
+                options.append(opt_text)
+
         attrs = {
             "element_id": handle.get_attribute("id"),
             "name": handle.get_attribute("name"),
@@ -627,7 +640,60 @@ def _extract_context(page: Page, url: str) -> PageContext:
                 test_id=attrs["test_id"],
                 element_id=attrs["element_id"],
                 name=attrs["name"],
+                options=options if options else None,
                 recommended_locator=_build_recommended_locator("select", attrs),
+            )
+        )
+
+    # ── Custom Dropdowns (Combobox / Listbox) ────────────────────────────────
+    for handle in page.query_selector_all("[role='combobox'], [role='listbox']"):
+        if not handle.is_visible():
+            continue
+
+        # Try to gracefully grab visible child options if present (without clicking)
+        options = []
+        for opt in handle.query_selector_all("[role='option']"):
+            opt_text = opt.inner_text().strip()
+            if opt_text:
+                options.append(opt_text)
+
+        # Some custom dropdowns connect to their listbox via aria-controls
+        controls_id = handle.get_attribute("aria-controls")
+        if not options and controls_id:
+            controls_el = page.query_selector(f"#{controls_id}")
+            if controls_el:
+                for opt in controls_el.query_selector_all("[role='option']"):
+                    opt_text = opt.inner_text().strip()
+                    if opt_text:
+                        options.append(opt_text)
+
+        attrs = {
+            "element_id": handle.get_attribute("id"),
+            "name": handle.get_attribute("name"),
+            "label": handle.get_attribute("aria-label"),
+            "test_id": handle.get_attribute("data-testid"),
+            "visible_text": handle.inner_text().strip() or None,
+            "input_type": None,
+            "placeholder": handle.get_attribute("placeholder"),
+        }
+        if not attrs["label"] and attrs["element_id"]:
+            label_el = page.query_selector(f'label[for="{attrs["element_id"]}"]')
+            if label_el:
+                attrs["label"] = label_el.inner_text().strip() or None
+
+        el_tag = handle.get_attribute("role") or "combobox"
+        elements.append(
+            PageElement(
+                tag=el_tag,
+                role=el_tag,
+                label=attrs["label"],
+                test_id=attrs["test_id"],
+                element_id=attrs["element_id"],
+                name=attrs["name"],
+                visible_text=attrs["visible_text"],
+                placeholder=attrs["placeholder"],
+                options=options if options else None,
+                recommended_locator=_build_recommended_locator(el_tag, attrs),
             )
         )
 
