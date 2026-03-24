@@ -86,9 +86,10 @@ def test_mock_flow(page: Page) -> None:
 ```"""
 
         # 3. NORMAL OLLAMA LOGIC (Running on your ZBook)
-        self.user_prompt = f"Scenario: {user_request}"
+        prompt_text = f"Scenario: {user_request}"
         if additional_context:
-            self.user_prompt += f"\nAdditional Context: {additional_context}"
+            prompt_text += f"\nAdditional Context: {additional_context}"
+        self.user_prompt = prompt_text
 
         payload = {
             "model": self.model_name,
@@ -105,9 +106,16 @@ def test_mock_flow(page: Page) -> None:
                 raw: str = self.response.get("response", "")
                 return self._extract_code(raw)
             return ""
+        except requests.exceptions.Timeout as e:
+            raise RuntimeError(
+                f"Ollama request timed out after {timeout} seconds. The model might be loading or the prompt is too large. Try increasing OLLAMA_TIMEOUT in .env."
+            ) from e
+        except requests.exceptions.ConnectionError as e:
+            raise RuntimeError("Could not connect to Ollama. Is the server running locally on port 11434?") from e
+        except requests.exceptions.HTTPError as e:
+            raise RuntimeError(f"Ollama API HTTP error: {e}") from e
         except Exception as e:
-            print(f"Request failed: {e}")
-            return ""
+            raise RuntimeError(f"Ollama request failed: {e}") from e
 
     def _extract_code(self, text: str) -> str:
         """

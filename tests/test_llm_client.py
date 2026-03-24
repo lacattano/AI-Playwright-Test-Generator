@@ -116,12 +116,13 @@ class TestGenerateTestMethod:
 
     @patch("src.llm_client.requests.post")
     def test_connection_error_handling(self, mock_post: MagicMock) -> None:
-        """Verify empty string is returned for connection failures."""
+        """Verify RuntimeError is raised for connection failures."""
         with patch.dict(os.environ, {"CI": ""}):
             mock_post.side_effect = Exception("Connection failed")
             client = LLMClient()
-            result = client.generate_test("test scenario")
-            assert result == ""  # Check that it returns empty string on failure
+            with pytest.raises(RuntimeError) as exc_info:
+                client.generate_test("test scenario")
+            assert "Ollama request failed: Connection failed" in str(exc_info.value)
 
 
 class TestExtractCodeMethod:
@@ -214,8 +215,9 @@ class TestErrorHandling:
         with patch.dict(os.environ, {"CI": ""}):
             mock_post.side_effect = Exception("Connection refused")
             client = LLMClient()
-            result = client.generate_test("test")
-            assert result == ""  # Matches your current try/except logic
+            with pytest.raises(RuntimeError) as exc_info:
+                client.generate_test("test")
+            assert "Ollama request failed: Connection refused" in str(exc_info.value)
 
 
 if __name__ == "__main__":

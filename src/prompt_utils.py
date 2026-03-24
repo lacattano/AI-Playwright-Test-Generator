@@ -25,6 +25,7 @@ IMPORTANT:
 - Return ONLY the Python code, no markdown formatting, no explanations
 - If PAGE CONTEXT is provided above, use ONLY the locators listed there
 - Do not invent selectors that are not in the PAGE CONTEXT
+- For assertions after navigation, use `expect(page).to_have_url()` or `expect(page).to_have_title()` instead of making up element IDs like `#react-basics`
 - DO NOT skip the last criteria - all {count} criteria must have tests
 """.strip()
 

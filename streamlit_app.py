@@ -567,7 +567,8 @@ def main() -> None:
 
 ### GENERATION INSTRUCTIONS:
 - If PAGE CONTEXT is provided above, use ONLY the locators listed there.
-- Do not invent selectors not in the PAGE CONTEXT.
+- Do NOT invent selectors not in the PAGE CONTEXT.
+- For assertions after navigation, use `expect(page).to_have_url()` or `expect(page).to_have_title()` instead of making up element IDs like `#react-basics`.
 
 """
         full_prompt = system_prompt + prompt_template

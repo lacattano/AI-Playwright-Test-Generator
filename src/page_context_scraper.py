@@ -585,25 +585,28 @@ def _extract_context(page: Page, url: str) -> PageContext:
         if not handle.is_visible():
             continue
         visible = handle.inner_text().strip() or handle.get_attribute("value") or None
+        actual_tag = str(handle.evaluate("el => el.tagName.toLowerCase()"))
+
         attrs = {
             "element_id": handle.get_attribute("id"),
             "name": handle.get_attribute("name"),
             "label": handle.get_attribute("aria-label") or visible,
             "test_id": handle.get_attribute("data-testid"),
             "visible_text": visible,
-            "input_type": None,
+            "input_type": handle.get_attribute("type") if actual_tag == "input" else None,
             "placeholder": None,
         }
         elements.append(
             PageElement(
-                tag="button",
+                tag=actual_tag,
                 role=handle.get_attribute("role") or "button",
                 label=attrs["label"],
                 test_id=attrs["test_id"],
                 element_id=attrs["element_id"],
                 name=attrs["name"],
                 visible_text=attrs["visible_text"],
-                recommended_locator=_build_recommended_locator("button", attrs),
+                input_type=attrs["input_type"],
+                recommended_locator=_build_recommended_locator(actual_tag, attrs),
             )
         )
 
