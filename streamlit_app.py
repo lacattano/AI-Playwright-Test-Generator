@@ -11,7 +11,13 @@ from typing import Any
 
 import streamlit as st
 
-from src.file_utils import rename_test_file, save_generated_test
+from src.code_validator import (
+    validate_python_syntax as _validate_python_syntax,
+)
+from src.code_validator import (
+    validate_test_function as _validate_test_function,
+)
+from src.file_utils import rename_test_file
 
 try:
     from src.file_utils import normalise_code_newlines as _normalise
@@ -24,7 +30,6 @@ except ImportError:
 from dotenv import load_dotenv
 
 from src.coverage_utils import build_coverage_analysis
-from src.llm_errors import LLMError, LLMErrorType, LLMResult
 from src.page_context_scraper import scrape_multiple_pages, scrape_page_context
 from src.prompt_utils import get_streamlit_system_prompt_template
 from src.pytest_output_parser import RunResult, TestResult, parse_pytest_output
@@ -541,6 +546,8 @@ def main() -> None:
                         )
                         for pg in multi_ctx.pages:
                             st.sidebar.caption(f"  • {pg.url} → {pg.element_count()} elements")
+                        # DEBUG: Log page context content
+                        st.sidebar.info(f"🔍 Page Context (first 200 chars):\n{page_context_block[:200]}...")
                     if scraper_state.failed_urls:
                         st.sidebar.warning(f"⚠️ Failed to scrape: {', '.join(scraper_state.failed_urls)}")
                     if multi_ctx.is_empty:
@@ -555,6 +562,8 @@ def main() -> None:
                     if ctx:
                         page_context_block = ctx.to_prompt_block()
                         st.sidebar.success(f"✅ Scraped {ctx.element_count()} elements from page")
+                        # DEBUG: Log page context content
+                        st.sidebar.info(f"🔍 Page Context (first 200 chars):\n{page_context_block[:200]}...")
                     elif scrape_err:
                         st.sidebar.warning(f"⚠️ Scraper: {scrape_err[:120]}")
                 except Exception as e:
@@ -572,70 +581,65 @@ def main() -> None:
 
 """
         full_prompt = system_prompt + prompt_template
+        # DEBUG: Log prompt being sent to LLM
+        st.sidebar.info(f"🔍 Full prompt length: {len(full_prompt)} chars")
+        if page_context_block:
+            st.sidebar.info(f"🔍 Prompt includes page context: True ({len(page_context_block)} chars)")
+        else:
+            st.sidebar.warning("⚠️ Prompt has NO page context - LLM will invent selectors")
 
         with st.spinner("Generating Playwright tests..."):
             try:
                 model = st.session_state.get("selected_model", "llama3.2")
                 generator = TestGenerator(page_url=None, model_name=model)
-                raw_response = generator.client.generate_test(full_prompt)
-                generated_code = _normalise(raw_response)
+                saved_path = generator.generate_and_save(full_prompt)
 
-                llm_result = (
-                    LLMResult(code=generated_code)
-                    if generated_code
-                    else LLMResult(
-                        code=None,
-                        error=LLMError(
-                            error_type=LLMErrorType.EMPTY_RESPONSE,
-                            message="The LLM returned an empty response. "
-                            "Check that Ollama is running and OLLAMA_TIMEOUT is high enough (recommended: 300).",
-                        ),
-                    )
+                # Read the generated code from the saved file
+                with open(saved_path, encoding="utf-8") as f:
+                    normalised_code = f.read()
+
+                # Normalise code newlines
+                normalised_code = _normalise(normalised_code)
+
+                # Validate Python syntax
+                syntax_error = _validate_python_syntax(normalised_code)
+                if syntax_error:
+                    st.error("❌ Generated code failed Python syntax validation")
+                    st.code(f"Line {syntax_error}: Syntax error detected")
+                    return
+
+                # B-009: Validate test function format (no async def)
+                test_error = _validate_test_function(normalised_code)
+                if test_error:
+                    st.error(f"❌ Generated code failed test validation: {test_error}")
+                    st.code(normalised_code, language="python")
+                    return
+
+                st.session_state.saved_test_path = saved_path
+                st.session_state.generated_code = normalised_code
+
+                # Build coverage analysis
+                st.session_state.coverage_analysis = build_coverage_analysis(
+                    acceptance_criteria_lines=acceptance_criteria_lines,
+                    generated_code=normalised_code,
                 )
 
-                if llm_result.code:
-                    saved_path = save_generated_test(
-                        test_code=llm_result.code,
-                        story_text=user_story_text,
-                        base_url=base_url,
+                st.success(f"Tests Generated - saved to `{saved_path}`")
+
+                # R-006: rename test file
+                with st.expander("✏️ Rename test file"):
+                    new_name = st.text_input(
+                        "New filename (without .py)",
+                        value=Path(saved_path).stem,
+                        key="rename_input",
                     )
-                    st.session_state.generated_code = llm_result.code
-                    st.session_state.saved_test_path = saved_path
-
-                    st.session_state.coverage_analysis = build_coverage_analysis(
-                        acceptance_criteria_lines=acceptance_criteria_lines,
-                        generated_code=llm_result.code,
-                    )
-
-                    st.success(f"Tests Generated - saved to `{saved_path}`")
-
-                    # R-006: rename test file
-                    with st.expander("✏️ Rename test file"):
-                        new_name = st.text_input(
-                            "New filename (without .py)",
-                            value=Path(saved_path).stem,
-                            key="rename_input",
-                        )
-                        if st.button("Rename", key="rename_btn"):
-                            try:
-                                new_path = rename_test_file(saved_path, new_name)
-                                st.session_state.saved_test_path = new_path
-                                st.success(f"Renamed to `{new_path}`")
-                            except Exception as rename_err:
-                                st.error(f"Rename failed: {rename_err}")
-
-                else:
-                    message = (
-                        llm_result.error.message
-                        if llm_result.error is not None
-                        else "Failed to generate tests due to an unknown LLM error."
-                    )
-                    st.error(f"❌ {message}")
-                    with st.expander("🔍 Debug info"):
-                        st.write(f"**Model:** {model}")
-                        st.write(f"**Raw response type:** {type(raw_response)}")
-                        st.write(f"**Raw response value:** `{repr(raw_response)[:500]}`")
-                        st.write(f"**Prompt length:** {len(full_prompt)} chars")
+                    if st.button("Rename", key="rename_btn"):
+                        try:
+                            new_path = rename_test_file(saved_path, new_name)
+                            st.session_state.saved_test_path = new_path
+                            st.success(f"Renamed to `{new_path}`")
+                        except Exception as rename_err:
+                            st.error(f"Rename failed: {rename_err}")
 
             except Exception as e:
                 st.error(f"Error: {str(e)}")
