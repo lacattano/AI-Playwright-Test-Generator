@@ -379,6 +379,8 @@ Ollama is already running — this is fine, ignore the error.
 | R-001 to R-006: Feature Recovery | Done (2026-03-13) |
 | BREAK-1: `src/pytest_output_parser.py` missing | Fixed |
 | BREAK-2: Session state wipe in `display_run_button()` | Fixed |
+| AI-002: User story parser (`src/user_story_parser.py`) | Done (2026-03-29) |
+| AI-003: `.env.example` updated with correct defaults | Done (2026-03-29) |
 
 ### R-001 to R-006 Detail
 
@@ -395,7 +397,7 @@ Ollama is already running — this is fine, ignore the error.
 
 | ID | Feature |
 |----|---------|
-| AI-002 | User story parser (`src/user_story_parser.py`) — TDD with fixtures — **Cline active** |
+| B-009 | `src/code_validator.py` — `ast.parse()` guard before saving — **next Cline task** |
 
 ### Logged Bugs (Non-Blocking)
 
@@ -409,12 +411,11 @@ Ollama is already running — this is fine, ignore the error.
 | B-008 | Run Status column never populates in results table | Logged |
 | B-009 | No `ast.parse()` validation before saving generated test files — truncated LLM output saved silently | Logged — planned `src/code_validator.py` |
 
-### Backlog (Next — after AI-002)
+### Backlog (Next — after B-009)
 
 | ID | Feature | Notes |
 |----|---------|-------|
-| B-009 | `src/code_validator.py` — `ast.parse()` guard before saving | Follows AGENTS.md Section 9 conventions |
-| AI-003 | Update `.env.example` with `OLLAMA_TIMEOUT=300` and `OLLAMA_MODEL=qwen3.5:27b` | Quick |
+| B-009 | `src/code_validator.py` — `ast.parse()` guard before saving | Follows AGENTS.md Section 9 conventions — **next** |
 | AI-004 | Phase C UI gaps (env dropdown, re-run failed, screenshot viewer) | |
 | AI-005 | Extract coverage helpers to `src/coverage_utils.py` | |
 | AI-006 | Create `tests/fixtures/user_stories/` with 10-15 format examples | Feeds AI-002 validation |
@@ -447,9 +448,10 @@ Ollama is already running — this is fine, ignore the error.
 - **2026-03-13:** Session 8 — R-001 through R-006 implemented, Cline loop recovery, load_dotenv fix, URL normalisation, content persistence fix, download crash fix
 - **2026-03-16:** Session 9 — BREAK-1/BREAK-2 identified and fixed; `src/pytest_output_parser.py` committed; session state wipe removed from `display_run_button()`
 - **2026-03-29:** Docs refresh — PROJECT_KNOWLEDGE.md updated: stale breaks cleared, models table updated (qwen3.5:27b recommended), `src/prompt_utils.py` added to file structure, B-006 through B-009 logged, AI-009 phases documented, streamlit_app.py explicitly noted as non-protected
+- **2026-03-29:** AI-002 complete — `src/user_story_parser.py` and `tests/test_user_story_parser.py` committed, all tests passing. AI-003 done manually. B-009 next.
 
 ---
 
 *Last Updated: 2026-03-29*
-*Project Status: CI green — AI-002 in progress (Cline)*
-*Current Phase: AI-002 → B-009 → AI-009*
+*Project Status: CI green — AI-002 and AI-003 complete*
+*Current Phase: B-009 → AI-009*

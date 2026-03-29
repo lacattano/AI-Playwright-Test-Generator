@@ -1,0 +1,30 @@
+﻿# Cache directories
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+__pycache__/
+htmlcov/
+.venv/
+
+# Generated output
+generated_tests/
+screenshots/
+
+# Build/misc
+*.pyc
+*.png
+*.jpg
+
+# Kanban memory bank (large files excluded)
+cline-mcp-memory-bank/node_modules/
+cline-mcp-memory-bank/build/
+cline-mcp-memory-bank/*.json
+cline-mcp-memory-bank/*.yaml
+cline-mcp-memory-bank/*.png
+
+node_modules/
+.git/
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/

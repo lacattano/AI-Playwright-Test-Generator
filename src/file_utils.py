@@ -5,6 +5,8 @@ import re
 from datetime import datetime
 from pathlib import Path
 
+from src.code_validator import validate_python_syntax
+
 
 def slugify(text: str) -> str:
     """Convert text to a filesystem-safe filename segment.
@@ -59,6 +61,9 @@ def save_generated_test(
     story_slug = slugify(story_text[:50]) if story_text else "test"
     filename = f"test_{timestamp}_{story_slug}.py"
     file_path = output_path / filename
+    validation_error = validate_python_syntax(test_code)
+    if validation_error:
+        raise ValueError(f"Generated code failed syntax validation: {validation_error}")
 
     header = f'''"""
 Auto-generated Playwright test

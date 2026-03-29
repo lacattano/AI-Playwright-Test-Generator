@@ -71,3 +71,8 @@ screenshots/*
 !assets/*.png
 # ── Generated Test Files ──────────────────────────────────────────────────────
 generated_tests/test_*.py
+
+# ── MCP Memory Bank ────────────────
+cline-mcp-memory-bank/
+# ── memory-bank/ ────────────────
+memory-bank/
