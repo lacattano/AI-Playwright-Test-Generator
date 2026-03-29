@@ -76,3 +76,5 @@ generated_tests/test_*.py
 cline-mcp-memory-bank/
 # ── memory-bank/ ────────────────
 memory-bank/
+
+package-lock.json
