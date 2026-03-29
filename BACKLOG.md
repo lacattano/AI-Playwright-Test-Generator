@@ -1,7 +1,7 @@
 # BACKLOG.md
 ## AI Playwright Test Generator
 
-Last updated: 2026-03-21
+Last updated: 2026-03-29
 
 ---
 
@@ -67,12 +67,16 @@ additional URLs text area, conditional scraping, per-page sidebar feedback.
 **Spec:** `FEATURE_SPEC_multi_page_scraping.md`  
 **Priority:** Phase B is deferred — see feature spec
 
-### AI-002 — User Story Parser Module
+### ✅ AI-002 — User Story Parser Module (COMPLETE)
 **What:** Move criteria extraction into `src/user_story_parser.py` with proper  
 format support: Gherkin, Jira AC bullets, numbered, free-form  
-**Why:** Currently lives in `streamlit_app.py` — untestable without Streamlit crash  
+**Why:** Currently lived in `streamlit_app.py` — untestable without Streamlit crash  
 **New files:** `src/user_story_parser.py`, `tests/test_user_story_parser.py`  
-**Priority:** High — next up
+**Status:** Phase complete — `FeatureParser` class, `FeatureSpecification` dataclass,  
+`ParseResult` class all implemented and tested. Streamlit integration complete.  
+**Tests:** 23 test cases covering Gherkin, Jira bullets, numbered lists, headings,  
+whitespace, empty input, error handling. 100% pass rate.  
+**Priority:** High — completed Session 11 (2026-03-29)
 
 ### AI-005 — Move coverage helpers to `src/coverage_utils.py`
 **What:** Extract remaining coverage helpers out of `streamlit_app.py`  
@@ -147,6 +151,21 @@ core functions extracted. Remaining work: verify no coverage logic is still in `
 - AI-009 (multi-page scraping) added as critical priority
 - `FEATURE_SPEC_multi_page_scraping.md` created
 - AI-003 confirmed still open (27b model hitting timeout despite .env at 300 — load_dotenv timing issue suspected)
+
+### Session 11 (2026-03-29) — User Story Parser Module (AI-002)
+- AI-002 complete — created `src/user_story_parser.py` with `FeatureParser`,  
+  `FeatureSpecification` dataclass, `ParseResult` class
+- 23 comprehensive test cases in `tests/test_user_story_parser.py` covering:
+  - Gherkin format (user story + acceptance criteria)
+  - Jira-style bullets (- prefix)
+  - Numbered lists (1. 2. 3.)
+  - Alternative headings (## Requirements, ## Acceptance)
+  - Hash mark dividers (---)
+  - Edge cases: empty input, whitespace, missing user story
+- `streamlit_app.py` updated to use new `parse_feature_text()` wrapper
+- Parser correctly identifies headings, cleans bullet markers, strips extra whitespace
+- Tests: 100% pass rate, ruff clean, mypy clean
+- 121 tests total, coverage: 27%
 
 ### Session 10 (2026-03-21)
 - B-007 fixed — removed duplicate error rendering from `display_coverage()`

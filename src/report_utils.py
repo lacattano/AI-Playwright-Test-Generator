@@ -1,9 +1,75 @@
 from __future__ import annotations
 
 import base64
+import html as _html
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+from src.pytest_output_parser import RunResult, TestResult
+
+
+def escape_html(text: str) -> str:
+    """Escape HTML special characters for safe embedding in HTML documents.
+
+    Args:
+        text: Raw text to escape
+
+    Returns:
+        HTML-escaped text with &, <, >, ", and ' characters escaped
+    """
+    return _html.escape(text, quote=True)
+
+
+def build_report_dicts(
+    coverage_analysis: dict | None,
+    run_result: RunResult | None,
+) -> list[dict]:
+    """Convert RequirementCoverage + RunResult to the dict format used by report_utils.
+
+    Args:
+        coverage_analysis: dict with "requirements" key containing RequirementCoverage list
+        run_result: RunResult from pytest parser, or None
+
+    Returns:
+        list of dicts with keys: test_name, status, duration, screenshots, error_message
+    """
+    rows: list[dict] = []
+
+    requirements = (coverage_analysis or {}).get("requirements", [])
+    run_map: dict[str, TestResult] = {}
+    if run_result:
+        for tr in run_result.results:
+            run_map[tr.name] = tr
+
+    for req in requirements:
+        linked: list[str] = getattr(req, "linked_tests", []) or []
+        status = "unknown"
+        duration = 0.0
+        error_message = ""
+
+        if linked and run_result:
+            for test_name in linked:
+                found = run_map.get(test_name)
+                if found is not None:
+                    status = found.status
+                    duration = float(found.duration)
+                    error_message = found.error_message or ""
+                    break
+        elif req.status in ("covered", "not_covered", "partial"):
+            status = "pending"
+
+        rows.append(
+            {
+                "test_name": f"{req.id}: {req.description[:80]}",
+                "status": status,
+                "duration": duration,
+                "screenshots": [],
+                "error_message": error_message,
+            }
+        )
+
+    return rows
 
 
 def generate_local_report(coverage: list[dict[str, Any]]) -> str:

@@ -6,30 +6,14 @@
 
 **Repository:** https://github.com/lacattano/AI-Playwright-Test-Generator
 
-**Current Status:** Active development — Streamlit UI working, LLM pipeline connected, page context scraper wired in, all report formats generating. CI currently failing — see **Known Broken Items** below before starting any session.
+**Current Status:** Active development — CI green. Streamlit UI working, LLM pipeline connected, page context scraper wired in, all report formats generating. AI-002 (user story parser) in progress via Cline.
 
 ---
 
-## ⚠️ Known Broken Items (Fix These First)
+## ⚠️ Known Broken Items
 
-These issues were confirmed broken as of the last commit (2026-03-13). Fix in order.
-
-### BREAK-1 — `src/pytest_output_parser.py` is missing (CI BLOCKER)
-**Symptom:** `pytest tests/ -v` fails with `ModuleNotFoundError: No module named 'src.pytest_output_parser'`  
-**Cause:** `tests/test_pytest_output_parser.py` imports the module, but the implementation file was never committed.  
-**Fix:** Copy `src/pytest_output_parser.py` from this document's appendix (or the `fix/` branch) into `src/`.  
-**Impact:** Until fixed, ALL tests fail in CI — this is the entire reason the last commit did not pass GitHub Actions.
-
-### BREAK-2 — Session state wipe in `display_run_button()`
-**Symptom:** After clicking "Run Now", the results panel is always blank.  
-**Cause:** In `streamlit_app.py`, inside `display_run_button()`, there are two lines immediately after the results are saved to session state that set them back to `None` and `""`:
-```python
-# BROKEN — these two lines must be deleted:
-st.session_state.last_run_success = None
-st.session_state.last_run_output = ""
-```
-**Fix:** Delete those two lines. The correct block sets values once and leaves them.  
-**Impact:** Run results never display, download buttons appear to do nothing.
+> No critical breaks as of 2026-03-29. BREAK-1 and BREAK-2 were resolved in session 9.
+> See **Logged Bugs** in the backlog section for non-blocking issues.
 
 ---
 
@@ -37,9 +21,9 @@ st.session_state.last_run_output = ""
 
 ### Core Technologies
 - **Python 3.13+** — Modern Python with full type hint support
-- **Playwright** — Browser automation framework
+- **Playwright** — Browser automation framework (sync API only — never async)
 - **pytest** — Professional test framework (pytest-playwright integration)
-- **Ollama** — Local LLM serving (qwen3.5:35b model)
+- **Ollama** — Local LLM serving (model user-configurable; `qwen3.5:27b` recommended)
 - **Streamlit** — Non-technical user UI
 - **GitHub Actions** — CI/CD pipeline
 - **Codecov** — Test coverage tracking
@@ -100,10 +84,14 @@ streamlit>=1.32.0
 ### Required Environment Variables
 ```bash
 # .env (NEVER COMMIT)
-OLLAMA_MODEL=qwen3.5:35b
+OLLAMA_MODEL=qwen3.5:27b
 OLLAMA_TIMEOUT=300
 OLLAMA_BASE_URL=http://localhost:11434
 ```
+
+> ⚠️ `OLLAMA_TIMEOUT` is only respected if `load_dotenv()` is called **before** `LLMClient`
+> initialises. This is done at the top of `streamlit_app.py`. If timeout seems ignored,
+> check that no module-level `LLMClient()` instantiation happens at import time.
 
 ### Development Setup
 ```bash
@@ -122,7 +110,7 @@ playwright install chromium
 
 # 5. Configure environment
 cp .env.example .env
-# Edit .env — set OLLAMA_TIMEOUT=300
+# Edit .env — set OLLAMA_TIMEOUT=300, OLLAMA_MODEL=qwen3.5:27b
 
 # 6. Start Ollama (in separate terminal)
 ollama serve   # if not already running as a service
@@ -151,7 +139,7 @@ bash fix.sh        # runs ruff + mypy
 # 2. Unit tests
 pytest tests/ -v
 
-# 3. Stage (excluding debug files and cline_tasks/)
+# 3. Stage ALL changes before committing (pre-commit checks staged version)
 git add -A
 git diff --staged --stat
 
@@ -159,6 +147,10 @@ git diff --staged --stat
 git commit -m "your message here"
 git push
 ```
+
+> ⚠️ Always `git add` fixes **before** running pre-commit or committing. pre-commit
+> stashes unstaged files and checks the stale staged version — you will commit a broken
+> state without realising it.
 
 ---
 
@@ -182,30 +174,37 @@ AI-Playwright-Test-Generator/
 ├── screenshots/                        # Screenshot evidence storage
 ├── src/
 │   ├── __init__.py
+│   ├── code_validator.py               # PLANNED (B-009) — ast.parse() guard before saving tests
 │   ├── file_utils.py                   # save_generated_test, rename_test_file, normalise_code_newlines
 │   ├── llm_client.py                   # PROTECTED — Ollama API client
-│   ├── page_context_scraper.py         # Headless scraper, returns PageContext
-│   ├── pytest_output_parser.py         # ⚠️ BREAK-1: must exist — parse pytest stdout → RunResult
+│   ├── page_context_scraper.py         # Headless scraper, returns PageContext (subprocess-based)
+│   ├── prompt_utils.py                 # _PAGE_CONTEXT_RULES, prompt assembly helpers
+│   ├── pytest_output_parser.py         # parse pytest stdout → RunResult / TestResult
 │   ├── report_utils.py                 # generate_local_report, generate_jira_report, generate_html_report
-│   └── test_generator.py              # PROTECTED — Test generation logic
+│   ├── test_generator.py               # PROTECTED — Test generation logic
+│   └── user_story_parser.py            # IN PROGRESS (AI-002) — parse user stories into criteria
 ├── tests/                              # Unit tests FOR the tool itself
+│   ├── fixtures/
+│   │   └── user_stories/               # PLANNED (AI-006) — 10-15 varied user story examples
 │   ├── test_file_utils.py
 │   ├── test_page_context_scraper.py
 │   ├── test_pytest_output_parser.py
-│   └── test_report_utils.py
+│   ├── test_report_utils.py
+│   └── test_user_story_parser.py       # IN PROGRESS (AI-002)
 ├── .env                                # Local config (NEVER COMMIT)
 ├── .env.example                        # Template for .env
 ├── .streamlit/
 │   └── config.toml                     # Streamlit theme config
+├── AGENTS.md                           # LLM coding agent conventions
+├── BACKLOG.md                          # Feature and bug backlog
 ├── fix.sh                              # Runs ruff + mypy
 ├── launch_dev.sh                       # Start UI + mock server (dev only)
 ├── launch_ui.sh                        # Start UI only
 ├── main.py                             # PROTECTED — CLI entry point
 ├── pytest.ini                          # Pytest configuration
 ├── pyproject.toml                      # Project deps (managed by uv)
-├── streamlit_app.py                    # Streamlit UI (primary working file)
+├── streamlit_app.py                    # Streamlit UI (primary working file — NOT protected)
 ├── uv.lock                             # Dependency lock file
-├── BACKLOG.md                          # Feature backlog
 └── PROJECT_KNOWLEDGE.md               # This file
 ```
 
@@ -221,6 +220,10 @@ AI-Playwright-Test-Generator/
 | `.github/workflows/ci.yml` | CI/CD configured and working |
 
 **Rule:** Always ask before modifying these files.
+
+> ⚠️ `streamlit_app.py` is **NOT** in the protected list. It is the primary working file
+> and is expected to be edited frequently. Some LLM agents have incorrectly treated it as
+> protected — this is wrong.
 
 ---
 
@@ -241,19 +244,27 @@ AI-Playwright-Test-Generator/
 ### `streamlit_app.py` — Current Behaviour
 - Sidebar (Settings) is always visible from page load
 - LLM model selector fetches live from `ollama list` via `_get_ollama_models()`
-- `load_dotenv()` is called at startup so `OLLAMA_TIMEOUT` is applied
+- `load_dotenv()` is called at startup so `OLLAMA_TIMEOUT` is applied before `LLMClient` initialises
 - Text area (Paste story tab) is live — no intermediate confirm button
 - URL is auto-normalised: `www.foo.com` becomes `https://www.foo.com` before scraping
 - Scraper result shown in sidebar: success with element count, or warning with error snippet
 - Generated code + Coverage tabs persist after any button click (rendered from `session_state`)
 - Three download buttons always visible: `local.md`, `jira.md`, `standalone.html`
-- ⚠️ **BREAK-2:** Run results panel is blank due to session state wipe — see Known Broken Items
 
 ### `src/page_context_scraper.py` — How It Works
 - Runs Playwright in a **subprocess** (bypasses Streamlit's Windows ProactorEventLoop issue)
 - Returns `tuple[PageContext | None, str | None]` — always unpack as `ctx, err = scrape_page_context(url)`
 - Failure is non-fatal — generation continues without page context if scraper fails
 - `PageContext.to_prompt_block()` formats elements as plain text for LLM prompt injection
+- **Known limitation:** Single-page only. No session state — authenticated pages redirect to login,
+  producing useless repeated context. AI-009 will address this.
+
+### `src/prompt_utils.py` — Locator Rules
+- Contains `_PAGE_CONTEXT_RULES` — rules injected into LLM prompt to guide selector generation
+- **Planned additions (not yet implemented):**
+  - NEVER use bare tag names as locators (e.g., `page.locator("input")`)
+  - Selector priority: `data-testid` > `id` > `role+name` > `text` — never bare tags
+  - Never reuse the same selector across different pages
 
 ### `src/pytest_output_parser.py` — How It Works
 - `parse_pytest_output(raw: str) -> RunResult` is the single public entry point
@@ -297,8 +308,12 @@ These have appeared multiple times — check for them after any AI-assisted edit
 | Invented imports | ModuleNotFoundError | Verify import exists before accepting output |
 | Duplicate function definitions | SyntaxError or wrong behaviour | Rebuild from last known-good output |
 | Session state wipe pattern | Results blank after button click | Never set state key to None/empty after setting real value |
+| LLM "it passed" without explanation | Test passing for wrong reason | Require mechanistic explanation — what exactly matched? |
+| B009 linting rule confused with B-009 bug | Wrong plan from LLM | B-009 is the ast.parse validation bug ID; B009 is a flake8-bugbear rule — unrelated |
 
 **Recovery strategy:** When Cline corrupts a file, rebuild from the last known-good output and re-apply changes cleanly. Do not attempt further incremental edits on a corrupted file.
+
+**Cline behaviour:** Add "Stop after that" to prompts and name specific MCP tool calls explicitly. If Cline enters a death spiral: stop immediately → `git reset --hard` to last working commit → resume with scoped task.
 
 ---
 
@@ -306,13 +321,14 @@ These have appeared multiple times — check for them after any AI-assisted edit
 
 ### LLM Timeout / Empty Response
 **Symptoms:** "LLM returned empty response", debug expander shows empty raw response  
-**Cause:** `OLLAMA_TIMEOUT` too low (default 60s), or `.env` not loaded  
-**Solution:** Set `OLLAMA_TIMEOUT=300` in `.env`; confirm `load_dotenv()` is called before `LLMClient` initialises
+**Cause:** `OLLAMA_TIMEOUT` too low (default 60s), or `load_dotenv()` firing after `LLMClient` initialises  
+**Solution:** Set `OLLAMA_TIMEOUT=300` in `.env`; confirm `load_dotenv()` is called at the very top of `streamlit_app.py` before any imports that instantiate `LLMClient`
 
 ### Generated Tests Fail With Wrong Locators
 **Symptoms:** `AssertionError: Locator expected to be visible`, invented element names like `username_input`  
-**Cause:** Page scraper failed silently because URL was missing `https://`  
-**Solution:** Ensure Base URL starts with `https://` — the app now auto-adds it. Check sidebar for scraper warning.
+**Cause 1:** Page scraper failed silently because URL was missing `https://` — now auto-added  
+**Cause 2:** Scraper only captures the first page. Selectors for pages 2+ are guessed — this is the core limitation AI-009 will fix.  
+**Solution short-term:** Check sidebar for scraper warning. Ensure Base URL starts with `https://`.
 
 ### venv not activating / wrong environment
 ```bash
@@ -338,10 +354,15 @@ Ollama is already running — this is fine, ignore the error.
 
 ## Models Available Locally
 
-| Model | Size | Use |
-|-------|------|-----|
-| `qwen3.5:35b` | 23 GB | Best quality output, ~2 min response |
-| `qwen2.5-coder:1.5b-base` | 986 MB | Fast testing, ~6 sec, simpler output |
+| Model | Size | Architecture | Use |
+|-------|------|--------------|-----|
+| `qwen3.5:27b` | ~16 GB | Dense — true 27B | **Recommended for code generation** — better quality than 35b on this hardware |
+| `qwen3.5:35b` | 23 GB | MoE — ~3B active params per token | Previous default; effective reasoning ~10B dense equivalent |
+| `qwen2.5-coder:1.5b-base` | 986 MB | Dense | Fast testing, ~6 sec, simpler output |
+
+> The model is user-configurable in the sidebar via `_get_ollama_models()`. `.env`
+> `OLLAMA_MODEL` sets the default. `qwen3.5:27b` is the recommended default for code
+> generation quality on AMD Strix Halo (64 GB unified memory).
 
 ---
 
@@ -354,8 +375,10 @@ Ollama is already running — this is fine, ignore the error.
 | Phase 0: Setup & Cleanup | Done |
 | Phase UI: Streamlit Interface | Done |
 | AI-001: Page Context Scraper | Done |
-| AI-008: Run Results Parser | ⚠️ Partial — test file exists, impl missing (BREAK-1) |
+| AI-008: Run Results Parser | Done (BREAK-1 resolved) |
 | R-001 to R-006: Feature Recovery | Done (2026-03-13) |
+| BREAK-1: `src/pytest_output_parser.py` missing | Fixed |
+| BREAK-2: Session state wipe in `display_run_button()` | Fixed |
 
 ### R-001 to R-006 Detail
 
@@ -368,119 +391,41 @@ Ollama is already running — this is fine, ignore the error.
 | R-005 | Three report download buttons |
 | R-006 | Rename test file UI |
 
-### Immediate Fixes Required
-
-| ID | Fix | Effort |
-|----|-----|--------|
-| BREAK-1 | Add `src/pytest_output_parser.py` | ~30 min |
-| BREAK-2 | Delete 2-line session state wipe in `display_run_button()` | 2 min |
-
-### Backlog (Next — after breaks fixed)
+### In Progress
 
 | ID | Feature |
 |----|---------|
-| AI-002 | User story parser (`src/user_story_parser.py`) — TDD with fixtures |
-| AI-003 | Update `.env.example` with `OLLAMA_TIMEOUT=300` |
-| AI-004 | Phase C UI gaps (env dropdown, re-run failed, screenshot viewer) |
-| AI-005 | Extract coverage helpers to `src/coverage_utils.py` |
-| AI-006 | Create `tests/fixtures/user_stories/` with 10-15 format examples |
-| AI-007 | Remove `_generate_test_content()` from CLI orchestrator |
+| AI-002 | User story parser (`src/user_story_parser.py`) — TDD with fixtures — **Cline active** |
 
----
+### Logged Bugs (Non-Blocking)
 
-## Appendix — `src/pytest_output_parser.py` (canonical source)
+> Bug IDs **must** be documented here or in BACKLOG.md. An ID that exists only in
+> conversation history is invisible to LLMs in future sessions.
 
-If the file is missing, create it with this exact content:
+| ID | Symptom | Status |
+|----|---------|--------|
+| B-006 | Parser banner shows wrong result on mixed pass/fail runs | Logged |
+| B-007 | Duplicate error panels in run results UI | Logged |
+| B-008 | Run Status column never populates in results table | Logged |
+| B-009 | No `ast.parse()` validation before saving generated test files — truncated LLM output saved silently | Logged — planned `src/code_validator.py` |
 
-```python
-"""
-pytest_output_parser.py — Parse raw pytest stdout into structured data.
+### Backlog (Next — after AI-002)
 
-Converts verbose pytest -v output into typed RunResult / TestResult objects
-that the Streamlit UI can render as a readable results table.
+| ID | Feature | Notes |
+|----|---------|-------|
+| B-009 | `src/code_validator.py` — `ast.parse()` guard before saving | Follows AGENTS.md Section 9 conventions |
+| AI-003 | Update `.env.example` with `OLLAMA_TIMEOUT=300` and `OLLAMA_MODEL=qwen3.5:27b` | Quick |
+| AI-004 | Phase C UI gaps (env dropdown, re-run failed, screenshot viewer) | |
+| AI-005 | Extract coverage helpers to `src/coverage_utils.py` | |
+| AI-006 | Create `tests/fixtures/user_stories/` with 10-15 format examples | Feeds AI-002 validation |
+| AI-007 | Remove `_generate_test_content()` from CLI orchestrator | |
+| AI-009 Phase A | Multi-page scraping: user-provided URL list | Prerequisite for Phase B |
+| AI-009 Phase B | Multi-page scraping: Playwright-driven authenticated flow following | **Core value driver** — see note below |
 
-No Streamlit imports — fully unit testable in isolation.
-"""
-
-from __future__ import annotations
-
-import re
-from dataclasses import dataclass, field
-
-
-_PASSED_RE = re.compile(r"(\S+\.py)::(\S+)\s+PASSED")
-_FAILED_RE = re.compile(r"(\S+\.py)::(\S+)\s+FAILED")
-_DURATION_RE = re.compile(
-    r"(\d+) passed(?:,\s*(\d+) failed)? in ([\d.]+)s"
-)
-_ERROR_RE = re.compile(r"FAILED \S+::(\S+) - (.+)")
-
-
-@dataclass
-class TestResult:
-    name: str
-    status: str          # "passed" | "failed" | "error"
-    duration: float      # seconds; 0.0 when not available
-    error_message: str
-    file_path: str
-
-
-@dataclass
-class RunResult:
-    results: list[TestResult] = field(default_factory=list)
-    total: int = 0
-    passed: int = 0
-    failed: int = 0
-    errors: int = 0
-    duration: float = 0.0
-    raw_output: str = ""
-
-
-def parse_pytest_output(raw: str) -> RunResult:
-    run = RunResult(raw_output=raw)
-    results_by_name: dict[str, TestResult] = {}
-
-    for line in raw.splitlines():
-        passed_match = _PASSED_RE.search(line)
-        if passed_match:
-            file_path, name = passed_match.group(1), passed_match.group(2)
-            results_by_name[name] = TestResult(
-                name=name, status="passed", duration=0.0,
-                error_message="", file_path=file_path,
-            )
-            continue
-
-        failed_match = _FAILED_RE.search(line)
-        if failed_match:
-            file_path, name = failed_match.group(1), failed_match.group(2)
-            results_by_name[name] = TestResult(
-                name=name, status="failed", duration=0.0,
-                error_message="", file_path=file_path,
-            )
-            continue
-
-        error_match = _ERROR_RE.search(line)
-        if error_match:
-            name, message = error_match.group(1), error_match.group(2)
-            if name in results_by_name:
-                results_by_name[name].error_message = message
-            continue
-
-        duration_match = _DURATION_RE.search(line)
-        if duration_match:
-            run.passed = int(duration_match.group(1))
-            run.failed = int(duration_match.group(2) or 0)
-            run.duration = float(duration_match.group(3))
-
-    run.results = list(results_by_name.values())
-    run.total = len(run.results)
-
-    if run.passed + run.failed == 0 and run.total > 0:
-        run.passed = sum(1 for r in run.results if r.status == "passed")
-        run.failed = sum(1 for r in run.results if r.status == "failed")
-
-    return run
-```
+> **AI-009 is the highest-priority feature.** Without multi-page scraping, all tests beyond
+> page one use guessed selectors, undermining the tool's core value regardless of other
+> improvements. Graceful failure is required for SSO, MFA, and CAPTCHA (out of scope with
+> explicit error messages, not silent failures).
 
 ---
 
@@ -500,10 +445,11 @@ def parse_pytest_output(raw: str) -> RunResult:
 - **2026-03-05:** Session 2 — Streamlit UI built, uv adopted, mock site updated, BACKLOG.md created
 - **2026-03-12:** Sessions 3-7 — AI-001 page context scraper, coverage mapping, run results parser, multiple bug fixes, feature recovery plan identified
 - **2026-03-13:** Session 8 — R-001 through R-006 implemented, Cline loop recovery, load_dotenv fix, URL normalisation, content persistence fix, download crash fix
-- **2026-03-16:** Session 9 — BREAK-1/BREAK-2 identified: `src/pytest_output_parser.py` missing (CI blocker), session state wipe bug located in `display_run_button()`
+- **2026-03-16:** Session 9 — BREAK-1/BREAK-2 identified and fixed; `src/pytest_output_parser.py` committed; session state wipe removed from `display_run_button()`
+- **2026-03-29:** Docs refresh — PROJECT_KNOWLEDGE.md updated: stale breaks cleared, models table updated (qwen3.5:27b recommended), `src/prompt_utils.py` added to file structure, B-006 through B-009 logged, AI-009 phases documented, streamlit_app.py explicitly noted as non-protected
 
 ---
 
-*Last Updated: 2026-03-16*
-*Project Status: CI broken — BREAK-1 and BREAK-2 must be fixed before any backlog work*
-*Current Phase: Fix CI, then backlog AI-002 through AI-007*
+*Last Updated: 2026-03-29*
+*Project Status: CI green — AI-002 in progress (Cline)*
+*Current Phase: AI-002 → B-009 → AI-009*

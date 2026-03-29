@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
 """Streamlit application for generating Playwright tests from feature specifications."""
 
-import html as _html
 import re
 import subprocess
 import traceback
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +16,7 @@ from src.code_validator import (
     validate_test_function as _validate_test_function,
 )
 from src.file_utils import rename_test_file
+from src.user_story_parser import FeatureParser
 
 try:
     from src.file_utils import normalise_code_newlines as _normalise
@@ -32,8 +31,13 @@ from dotenv import load_dotenv
 from src.coverage_utils import build_coverage_analysis
 from src.page_context_scraper import scrape_multiple_pages, scrape_page_context
 from src.prompt_utils import get_streamlit_system_prompt_template
-from src.pytest_output_parser import RunResult, TestResult, parse_pytest_output
-from src.report_utils import generate_jira_report, generate_local_report
+from src.pytest_output_parser import RunResult, parse_pytest_output
+from src.report_utils import (
+    build_report_dicts,
+    generate_html_report,
+    generate_jira_report,
+    generate_local_report,
+)
 from src.test_generator import TestGenerator
 
 load_dotenv()
@@ -149,7 +153,8 @@ def display_coverage(coverage_analysis: dict[str, Any] | None = None, run_result
             for test_name in req.linked_tests:
                 # Find matching test in run results
                 for tr in run_result.results:
-                    if tr.name == test_name or test_name.startswith(tr.name):
+                    # Match: tr.name equals or starts with test_name pattern
+                    if tr.name == test_name or tr.name.startswith(test_name):
                         icon = "✅" if tr.status == "passed" else "❌"
                         test_statuses.append(icon)
                         break
@@ -191,89 +196,6 @@ def display_coverage(coverage_analysis: dict[str, Any] | None = None, run_result
     )
 
 
-def _generate_html_report(coverage_analysis: dict | None = None, run_result: RunResult | None = None) -> str:
-    """Generate an HTML report with coverage analysis and optional test results."""
-    html_parts: list[str] = []
-    html_parts.append("""<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Test Generator - Report</title>
-    <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 40px; background: #f5f5f5; }
-        .container { max-width: 1200px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        h1 { color: #1a73e8; border-bottom: 2px solid #1a73e8; padding-bottom: 10px; }
-        h2 { color: #333; margin-top: 30px; }
-        table { width: 100%; border-collapse: collapse; margin: 15px 0; }
-        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
-        th { background: #f8f9fa; font-weight: 600; }
-        tr:hover { background: #f5f5f5; }
-        .pass { color: #2e7d32; font-weight: bold; }
-        .fail { color: #c62828; font-weight: bold; }
-        .pending { color: #e65100; }
-        .summary { background: #e3f2fd; padding: 15px; border-radius: 4px; margin: 20px 0; }
-        .timestamp { color: #666; font-size: 0.9em; }
-        .coverage-status-COVERED { color: #2e7d32; }
-        .coverage-status-PARTIAL { color: #e65100; }
-        .coverage-status-NOT_COVERED { color: #c62828; }
-    </style>
-</head>
-<body>
-    <div class="container">""")
-
-    html_parts.append(
-        f'<h1>🤖 AI Test Generator Report</h1>\n<p class="timestamp">Generated at {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</p>'
-    )
-
-    # Run Results section when available
-    if run_result is not None:
-        html_parts.append("")
-        html_parts.append("<h2>🏃 Test Run Results</h2>")
-
-        status_text = "All tests passed" if run_result.failed == 0 else f"{run_result.failed} test(s) failed"
-        html_parts.append(
-            f'<p class="summary">{status_text} - {run_result.passed} passed, {run_result.failed} failed in {run_result.duration:.1f}s</p>'
-        )
-
-        html_parts.append("<table><thead><tr><th>Test</th><th>Result</th><th>Duration</th></tr></thead><tbody>")
-        for r in run_result.results:
-            result_class = "pass" if r.status == "passed" else "fail"
-            icon = "✅ Pass" if r.status == "passed" else "❌ Fail"
-            duration = f"{r.duration:.1f}s" if r.duration > 0 else "-"
-            html_parts.append(
-                f'<tr><td>{escape_html(r.name)}</td><td class="{result_class}">{icon}</td><td>{duration}</td></tr>'
-            )
-        html_parts.append("</tbody></table>")
-
-    # Coverage section
-    if coverage_analysis and coverage_analysis.get("requirements"):
-        html_parts.append("<h2>📊 Coverage Analysis</h2>")
-
-        requirements = coverage_analysis["requirements"]
-        covered = sum(1 for r in requirements if r.status == "covered")
-        total = len(requirements)
-
-        html_parts.append(
-            f'<p class="summary">{covered} of {total} requirements have corresponding test coverage ({(covered / total * 100):.1f}%)</p>'
-        )
-
-        html_parts.append(
-            "<table><thead><tr><th>ID</th><th>Requirement</th><th>Status</th><th>Linked Tests</th></tr></thead><tbody>"
-        )
-        for req in requirements:
-            status_class = f"coverage-status-{req.status.upper()}"
-            tests_html = ", ".join(f'<span class="pending">{t}</span>' for t in req.linked_tests[:5])
-            html_parts.append(
-                f'<tr><td>{req.id}</td><td>{escape_html(req.description)}</td><td class="{status_class}">{req.status.upper()}</td><td>{tests_html}</td></tr>'
-            )
-        html_parts.append("</tbody></table>")
-
-    html_parts.append("</div></body>\n</html>")
-
-    return "\n".join(html_parts)
-
-
 def _get_ollama_models() -> list[str]:
     """Return list of locally available Ollama models by running 'ollama list'."""
     try:
@@ -291,122 +213,38 @@ def _get_ollama_models() -> list[str]:
         return ["llama3.2"]
 
 
-def escape_html(text: str) -> str:
-    """Escape HTML special characters."""
-    return _html.escape(text, quote=True)
-
-
-def _build_report_dicts(
-    coverage_analysis: dict | None,
-    run_result: RunResult | None,
-) -> list[dict]:
-    """Convert RequirementCoverage + RunResult to the dict format used by report_utils.
-
-    Args:
-        coverage_analysis: dict with "requirements" key containing RequirementCoverage list
-        run_result: RunResult from pytest parser, or None
-
-    Returns:
-        list of dicts with keys: test_name, status, duration, screenshots, error_message
-    """
-    rows: list[dict] = []
-
-    requirements = (coverage_analysis or {}).get("requirements", [])
-    run_map: dict[str, TestResult] = {}
-    if run_result:
-        for tr in run_result.results:
-            run_map[tr.name] = tr
-
-    for req in requirements:
-        linked: list[str] = getattr(req, "linked_tests", []) or []
-        status = "unknown"
-        duration = 0.0
-        error_message = ""
-
-        if linked and run_result:
-            for test_name in linked:
-                found = run_map.get(test_name)
-                if found is not None:
-                    status = found.status
-                    duration = float(found.duration)
-                    error_message = found.error_message or ""
-                    break
-        elif req.status in ("covered", "not_covered", "partial"):
-            status = "pending"
-
-        rows.append(
-            {
-                "test_name": f"{req.id}: {req.description[:80]}",
-                "status": status,
-                "duration": duration,
-                "screenshots": [],
-                "error_message": error_message,
-            }
-        )
-
-    return rows
-
-
 def get_system_prompt() -> str:
     """Return the system prompt template for test generation."""
     return get_streamlit_system_prompt_template()
 
 
-def parse_feature_text(content: str) -> tuple[list[str], list[str]]:
+def parse_feature_text(content: str) -> tuple[str, str, int, str | None]:
     """
-    Parse a feature specification string into user story lines and
-    acceptance criteria lines.
+    Parse a feature specification string into user story and acceptance criteria.
 
-    Handles:
-    - Structured markdown with ## headings
-    - Plain text with no headings (whole block treated as story)
-    - Mixed/informal input
+    Uses FeatureParser to extract and structure the feature specification.
+
+    Args:
+        content: Raw feature specification text
 
     Returns:
-        Tuple of (user_story_lines, acceptance_criteria_lines)
+        Tuple of (user_story_text, acceptance_criteria_text, criteria_count, error_message)
     """
-    lines = content.split("\n")
-    user_story: list[str] = []
-    acceptance_criteria_lines: list[str] = []
-    in_story_section = False
-    in_criteria_section = False
+    parser = FeatureParser()
+    result = parser.parse(content)
 
-    for line in lines:
-        stripped = line.strip()
-        stripped_lower = stripped.lower()
+    if not result.success:
+        return "", "", 0, result.error_message
 
-        # Detect section headings — handle ##, #, plain text variants
-        # Check BEFORE skipping # lines so "## User Story" is caught
-        if "user story" in stripped_lower:
-            in_story_section = True
-            in_criteria_section = False
-            continue
+    if result.specification is None:
+        return "", "", 0, "Parse failed"
 
-        if "acceptance criteria" in stripped_lower:
-            in_criteria_section = True
-            in_story_section = False
-            continue
-
-        # Skip empty lines and markdown dividers
-        if not stripped or stripped.startswith("---"):
-            continue
-
-        if in_story_section:
-            # Skip lines that are just heading markers
-            if not stripped.startswith("#"):
-                user_story.append(stripped)
-        elif in_criteria_section:
-            # Strip leading bullet/number markers for cleaner criteria text
-            clean = stripped.lstrip("-•*").strip()
-            clean = re.sub(r"^\d+[.)]\s*", "", clean)
-            if clean:
-                acceptance_criteria_lines.append(clean)
-
-    # Fallback: no headings found — treat everything as the user story
-    if not user_story and not acceptance_criteria_lines:
-        user_story = [line.strip() for line in lines if line.strip() and not line.strip().startswith("---")]
-
-    return user_story, acceptance_criteria_lines
+    return (
+        result.specification.user_story,
+        "\n".join(result.specification.acceptance_criteria),
+        result.specification.criteria_count,
+        None,
+    )
 
 
 def main() -> None:
@@ -492,23 +330,25 @@ def main() -> None:
         return
 
     # ── Parse content (shared path for both inputs) ───────────────────────────
-    user_story, acceptance_criteria_lines = parse_feature_text(content)
+    user_story_text, acceptance_criteria_text, criteria_count, error = parse_feature_text(content)
 
-    if not user_story:
+    if error:
+        st.error(f"Failed to parse input: {error}")
+        return
+
+    if not user_story_text:
         st.error("Couldn't find a user story. Add a '## User Story' heading or just type your story directly.")
         return
 
-    if not acceptance_criteria_lines:
+    if not acceptance_criteria_text:
         st.info(
             "No '## Acceptance Criteria' section found - the AI will generate tests "
             "from your story directly. For more precise control, add an "
             "**## Acceptance Criteria** section with one criterion per line."
         )
-        acceptance_criteria_lines = user_story
+        acceptance_criteria_text = user_story_text
+        criteria_count = 1
 
-    user_story_text = "\n".join(user_story)
-    acceptance_criteria_text = "\n".join(acceptance_criteria_lines)
-    criteria_count = len(acceptance_criteria_lines)
     st.sidebar.markdown(f"**Criteria Count**: {criteria_count}")
 
     if st.button("Generate Tests", type="primary"):
@@ -620,7 +460,7 @@ def main() -> None:
 
                 # Build coverage analysis
                 st.session_state.coverage_analysis = build_coverage_analysis(
-                    acceptance_criteria_lines=acceptance_criteria_lines,
+                    acceptance_criteria_lines=acceptance_criteria_text.split("\n"),
                     generated_code=normalised_code,
                 )
 
@@ -677,14 +517,11 @@ def main() -> None:
             )
 
         if st.session_state.coverage_analysis or st.session_state.last_run_result:
-            report_dicts = _build_report_dicts(
+            report_dicts = build_report_dicts(
                 coverage_analysis=st.session_state.coverage_analysis or None,
                 run_result=st.session_state.last_run_result,
             )
-            html_report = _generate_html_report(
-                coverage_analysis=st.session_state.coverage_analysis or None,
-                run_result=st.session_state.last_run_result,
-            )
+            html_report = generate_html_report(report_dicts)
             local_md = generate_local_report(report_dicts)
             jira_md = generate_jira_report(report_dicts)
 
