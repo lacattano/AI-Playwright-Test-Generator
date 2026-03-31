@@ -169,3 +169,50 @@ def parse_pytest_output(raw: str) -> RunResult:
         run.failed = sum(1 for r in run.results if r.status == "failed")
 
     return run
+
+
+def format_pytest_output_for_display(raw: str, max_lines: int = 80) -> str:
+    """Return a concise, high-signal pytest output snippet for UI display."""
+    if not raw.strip():
+        return ""
+
+    kept_lines: list[str] = []
+    seen_lines: set[str] = set()
+    interesting_patterns = (
+        "::test_",
+        "FAILURES",
+        "FAILED ",
+        "AssertionError",
+        "Error:",
+        "Exception:",
+        "TimeoutError:",
+        "short test summary info",
+    )
+
+    for line in raw.splitlines():
+        clean_line = line.strip()
+        if not clean_line:
+            continue
+        if clean_line.startswith(("platform ", "rootdir:", "plugins:", "configfile:", "cachedir:")):
+            continue
+        if clean_line.startswith(("Name ", "TOTAL ", "coverage:")):
+            continue
+        if clean_line.startswith(
+            ("---------- coverage:", "----------- coverage:", "====================================")
+        ):
+            if "FAILURES" not in clean_line and "short test summary info" not in clean_line:
+                continue
+
+        is_interesting = any(pattern in clean_line for pattern in interesting_patterns)
+        if not is_interesting and re.search(r"\b\d+\s+(passed|failed|error|errors)\b.*\bin\s+\d+\.\d+s", clean_line):
+            is_interesting = True
+
+        if is_interesting and clean_line not in seen_lines:
+            kept_lines.append(clean_line)
+            seen_lines.add(clean_line)
+
+    if not kept_lines:
+        fallback_lines = [line.strip() for line in raw.splitlines() if line.strip()]
+        return "\n".join(fallback_lines[-max_lines:])
+
+    return "\n".join(kept_lines[:max_lines])

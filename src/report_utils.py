@@ -56,7 +56,13 @@ def build_report_dicts(
                     duration = float(found.duration)
                     error_message = found.error_message or ""
                     break
-        elif req.status in ("covered", "not_covered", "partial"):
+            else:
+                status = "pending"
+        elif linked and run_result is None:
+            status = "pending"
+        elif getattr(req, "status", "") == "not_covered":
+            status = "unknown"
+        else:
             status = "pending"
 
         rows.append(
@@ -70,6 +76,26 @@ def build_report_dicts(
         )
 
     return rows
+
+
+def _status_summary(coverage: list[dict[str, Any]]) -> tuple[int, int, int, int]:
+    """Return passed, failed, pending, unknown counts."""
+    passed_count = sum(1 for t in coverage if t.get("status") == "passed")
+    failed_count = sum(1 for t in coverage if t.get("status") == "failed")
+    pending_count = sum(1 for t in coverage if t.get("status") == "pending")
+    unknown_count = sum(1 for t in coverage if t.get("status") not in {"passed", "failed", "pending"})
+    return passed_count, failed_count, pending_count, unknown_count
+
+
+def _status_icon(status: str) -> str:
+    """Return icon for a row status."""
+    if status == "passed":
+        return "✅"
+    if status == "failed":
+        return "❌"
+    if status == "pending":
+        return "⏳"
+    return "⚪"
 
 
 def generate_local_report(coverage: list[dict[str, Any]]) -> str:
@@ -90,12 +116,13 @@ def generate_local_report(coverage: list[dict[str, Any]]) -> str:
         "",
     ]
 
-    passed_count = sum(1 for t in coverage if t.get("status") == "passed")
-    failed_count = len(coverage) - passed_count
+    passed_count, failed_count, pending_count, unknown_count = _status_summary(coverage)
 
     lines.append(f"- **Total Tests:** {len(coverage)}")
     lines.append(f"- **Passed:** {passed_count}")
     lines.append(f"- **Failed:** {failed_count}")
+    lines.append(f"- **Pending:** {pending_count}")
+    lines.append(f"- **Unknown:** {unknown_count}")
     lines.append("")
 
     if coverage:
@@ -112,7 +139,7 @@ def generate_local_report(coverage: list[dict[str, Any]]) -> str:
         screenshots = test.get("screenshots", [])
         error_message = test.get("error_message", "")
 
-        status_icon = "✅" if status == "passed" else "❌"
+        status_icon = _status_icon(status)
         lines.append(f"### {idx}. {test_name} {status_icon}")
         lines.append("")
         lines.append(f"- **Status:** {status}")
@@ -161,10 +188,19 @@ def generate_jira_report(coverage: list[dict[str, Any]], test_execution_date: st
         "",
     ]
 
-    passed_count = sum(1 for t in coverage if t.get("status") == "passed")
-    failed_count = len(coverage) - passed_count
+    passed_count, failed_count, pending_count, unknown_count = _status_summary(coverage)
 
-    lines.append(f"Total Tests: {len(coverage)} | Passed: {passed_count} | Failed: {failed_count}")
+    lines.append(
+        " | ".join(
+            [
+                f"Total Tests: {len(coverage)}",
+                f"Passed: {passed_count}",
+                f"Failed: {failed_count}",
+                f"Pending: {pending_count}",
+                f"Unknown: {unknown_count}",
+            ]
+        )
+    )
     lines.append("")
 
     if coverage:
@@ -181,7 +217,7 @@ def generate_jira_report(coverage: list[dict[str, Any]], test_execution_date: st
         screenshots = test.get("screenshots", [])
         error_message = test.get("error_message", "")
 
-        status_emoji = "✅" if status == "passed" else "❌"
+        status_emoji = _status_icon(status)
         lines.append(f"=== {idx}. {test_name} {status_emoji} ===")
         lines.append("")
         lines.append(f"*Status:* {status}")
@@ -215,8 +251,7 @@ def generate_html_report(coverage: list[dict[str, Any]], screenshots_dir: Path |
     Returns:
         HTML formatted report string as a complete standalone document
     """
-    passed_count = sum(1 for t in coverage if t.get("status") == "passed")
-    failed_count = len(coverage) - passed_count
+    passed_count, failed_count, pending_count, unknown_count = _status_summary(coverage)
 
     def embed_screenshot(screenshot_path: str) -> tuple[str, str]:
         """Embed screenshot as base64 data URI or return placeholder.
@@ -273,11 +308,13 @@ def generate_html_report(coverage: list[dict[str, Any]], screenshots_dir: Path |
         "        .container { max-width: 1200px; margin: auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }",
         "        h1 { color: #333; border-bottom: 2px solid #007bff; padding-bottom: 10px; }",
         "        h2 { color: #555; margin-top: 30px; }",
-        "        .summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; margin: 20px 0; }",
+        "        .summary { display: grid; grid-template-columns: repeat(5, 1fr); gap: 20px; margin: 20px 0; }",
         "        .stat { text-align: center; padding: 20px; border-radius: 8px; }",
         "        .stat.total { background: #e3f2fd; }",
         "        .stat.passed { background: #e8f5e9; }",
         "        .stat.failed { background: #ffebee; }",
+        "        .stat.pending { background: #fff8e1; }",
+        "        .stat.unknown { background: #eceff1; }",
         "        .stat-value { font-size: 36px; font-weight: bold; }",
         "        .stat-label { color: #666; margin-top: 5px; }",
         "        .test-item { border: 1px solid #ddd; border-radius: 8px; margin: 15px 0; overflow: hidden; }",
@@ -286,6 +323,7 @@ def generate_html_report(coverage: list[dict[str, Any]], screenshots_dir: Path |
         "        .status-badge { padding: 5px 12px; border-radius: 4px; font-size: 14px; font-weight: 500; }",
         "        .status-passed { background: #4caf50; color: white; }",
         "        .status-failed { background: #f44336; color: white; }",
+        "        .status-pending { background: #f9a825; color: white; }",
         "        .status-unknown { background: #9e9e9e; color: white; }",
         "        .test-body { padding: 20px; }",
         "        .detail-row { display: flex; margin: 10px 0; }",
@@ -304,6 +342,8 @@ def generate_html_report(coverage: list[dict[str, Any]], screenshots_dir: Path |
         f"            <div class='stat total'><div class='stat-value'>{len(coverage)}</div><div class='stat-label'>Total Tests</div></div>",
         f"            <div class='stat passed'><div class='stat-value'>{passed_count}</div><div class='stat-label'>Passed</div></div>",
         f"            <div class='stat failed'><div class='stat-value'>{failed_count}</div><div class='stat-label'>Failed</div></div>",
+        f"            <div class='stat pending'><div class='stat-value'>{pending_count}</div><div class='stat-label'>Pending</div></div>",
+        f"            <div class='stat unknown'><div class='stat-value'>{unknown_count}</div><div class='stat-label'>Unknown</div></div>",
         "        </div>",
         "",
         "        <h2>Test Details</h2>",
@@ -316,8 +356,8 @@ def generate_html_report(coverage: list[dict[str, Any]], screenshots_dir: Path |
         screenshots = test.get("screenshots", [])
         error_message = test.get("error_message", "")
 
-        status_class = f"status-{status}" if status in ["passed", "failed"] else "status-unknown"
-        status_icon = "✅" if status == "passed" else ("❌" if status == "failed" else "⚠️")
+        status_class = f"status-{status}" if status in ["passed", "failed", "pending"] else "status-unknown"
+        status_icon = _status_icon(status)
 
         lines.extend(
             [

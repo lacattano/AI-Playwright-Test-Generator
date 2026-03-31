@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from src.prompt_utils import get_streamlit_system_prompt_template
+from src.prompt_utils import build_page_context_prompt_block, get_streamlit_system_prompt_template
 
 
 def test_streamlit_prompt_contains_placeholders() -> None:
@@ -26,6 +26,7 @@ def test_streamlit_prompt_mentions_page_context_rules() -> None:
     template = get_streamlit_system_prompt_template()
     assert "PAGE CONTEXT" in template
     assert "locators listed there" in template or "do not invent selectors" in template
+    assert "URLs" in template or "page URLs" in template
 
 
 def test_streamlit_prompt_enforces_test_isolation() -> None:
@@ -50,3 +51,38 @@ def test_streamlit_prompt_format_resolves_without_error() -> None:
     rendered = template.format(user_story="story", criteria="- do thing", count=3)
     assert "story" in rendered
     assert "do thing" in rendered
+
+
+def test_build_page_context_prompt_block_extracts_approved_locators() -> None:
+    """Prompt block should include extracted locator allowlist."""
+    page_context = """
+=== PAGE CONTEXT ===
+[input] id="user-name" → page.locator("#user-name")
+[a] data-testid="shopping-cart-link" → page.get_by_test_id("shopping-cart-link")
+"""
+    prompt_block = build_page_context_prompt_block(page_context)
+    assert "APPROVED LOCATORS" in prompt_block
+    assert 'page.locator("#user-name")' in prompt_block
+    assert 'page.get_by_test_id("shopping-cart-link")' in prompt_block
+
+
+def test_build_page_context_prompt_block_handles_empty_context() -> None:
+    """Empty context should produce fallback generation instructions."""
+    prompt_block = build_page_context_prompt_block("")
+    assert "No context available" in prompt_block
+    assert "No PAGE CONTEXT is available" in prompt_block
+
+
+def test_build_page_context_prompt_block_truncates_large_context() -> None:
+    """Large page-context payloads should be truncated to keep prompt size bounded."""
+    large_context = "X" * 10000
+    prompt_block = build_page_context_prompt_block(large_context)
+    assert "NOTE: PAGE CONTEXT was truncated" in prompt_block
+
+
+def test_build_page_context_prompt_block_allows_more_than_25_locators() -> None:
+    """Large pages should include substantially more than 25 approved locators."""
+    locator_lines = [f'[button] visible="Buy {i}" → page.get_by_test_id("buy-{i}")' for i in range(40)]
+    prompt_block = build_page_context_prompt_block("\n".join(locator_lines))
+    approved_count = prompt_block.count("- page.get_by_test_id(")
+    assert approved_count >= 30

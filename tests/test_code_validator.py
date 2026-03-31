@@ -1,6 +1,10 @@
 """Unit tests for the code_validator module."""
 
-from src.code_validator import validate_python_syntax, validate_test_function
+from src.code_validator import (
+    validate_generated_locator_quality,
+    validate_python_syntax,
+    validate_test_function,
+)
 
 
 class TestValidatePythonSyntax:
@@ -182,3 +186,128 @@ def test_with_lambda(page):
 """
         result = validate_test_function(code)
         assert result is None  # Regular function with lambda should be OK
+
+
+class TestValidateGeneratedLocatorQuality:
+    """Tests for generation-time locator quality heuristics."""
+
+    def test_rejects_should_be_visible_pattern(self) -> None:
+        """`.should_be_visible()` should be rejected as invalid Playwright Python."""
+        code = """
+def test_a(page):
+    page.locator("#x").should_be_visible()
+"""
+        result = validate_generated_locator_quality(code)
+        assert result is not None
+        assert "should_be_visible" in result
+
+    def test_rejects_bare_link_role_locator(self) -> None:
+        """`get_by_role('link')` without name should be rejected."""
+        code = """
+def test_a(page):
+    page.get_by_role("link").click()
+"""
+        result = validate_generated_locator_quality(code)
+        assert result is not None
+        assert "get_by_role('link')" in result
+
+    def test_rejects_shopping_cart_button_role(self) -> None:
+        """Shopping cart modeled as button role should be rejected."""
+        code = """
+def test_a(page):
+    page.get_by_role("button", name="shopping cart").click()
+"""
+        result = validate_generated_locator_quality(code)
+        assert result is not None
+        assert "shopping cart" in result
+
+    def test_rejects_saucedemo_backpack_link(self) -> None:
+        """Known ambiguous SauceDemo backpack link pattern should be rejected."""
+        code = """
+def test_a(page):
+    page.goto("https://www.saucedemo.com")
+    page.get_by_role("link", name="Backpack").click()
+"""
+        result = validate_generated_locator_quality(code)
+        assert result is not None
+        assert "Backpack" in result
+
+    def test_accepts_specific_id_or_testid_locators(self) -> None:
+        """Specific locators should pass quality checks."""
+        code = """
+from playwright.sync_api import expect
+
+def test_a(page):
+    page.locator("#user-name").fill("standard_user")
+    expect(page.get_by_test_id("shopping-cart-link")).to_be_visible()
+"""
+        result = validate_generated_locator_quality(code)
+        assert result is None
+
+    def test_rejects_broad_tag_only_locator(self) -> None:
+        """Broad tag-only locator usage should be rejected."""
+        code = """
+def test_a(page):
+    page.locator("button").click()
+"""
+        result = validate_generated_locator_quality(code)
+        assert result is not None
+        assert "broad tag-only locators" in result
+
+    def test_rejects_bare_except_pass(self) -> None:
+        """Swallowed failures via except: pass should be rejected."""
+        code = """
+def test_a(page):
+    try:
+        page.locator("#x").click()
+    except:
+        pass
+"""
+        result = validate_generated_locator_quality(code)
+        assert result is not None
+        assert "except: pass" in result
+
+    def test_rejects_invalid_saucedemo_checkout_html_url(self) -> None:
+        """SauceDemo should not use non-existent /checkout.html URL."""
+        code = """
+def test_checkout(page):
+    page.goto("https://www.saucedemo.com")
+    expect(page).to_have_url("https://www.saucedemo.com/checkout.html")
+"""
+        result = validate_generated_locator_quality(code)
+        assert result is not None
+        assert "checkout.html" in result
+
+    def test_rejects_invalid_saucedemo_checkout_title_assertion(self) -> None:
+        """SauceDemo checkout page title assertion should not use UI heading as browser title."""
+        code = """
+def test_checkout(page):
+    page.goto("https://www.saucedemo.com/checkout-step-one.html")
+    expect(page).to_have_title("Checkout: Your Information")
+"""
+        result = validate_generated_locator_quality(code)
+        assert result is not None
+        assert "Checkout: Your Information" in result
+
+    def test_rejects_brittle_exact_saucedemo_base_url_assertion(self) -> None:
+        """SauceDemo should avoid brittle exact base URL assertions before login."""
+        code = """
+def test_login(page):
+    page.goto("https://www.saucedemo.com")
+    expect(page).to_have_url("https://www.saucedemo.com")
+"""
+        result = validate_generated_locator_quality(code)
+        assert result is not None
+        assert "base URL" in result
+
+    def test_rejects_weak_negative_checkout_url_assertion(self) -> None:
+        """SauceDemo checkout checks should not rely on negative cart URL assertions."""
+        code = """
+def test_checkout(page):
+    page.goto("https://www.saucedemo.com/cart.html")
+    page.locator("#checkout").click()
+    expect(page).not_to_have_url("https://www.saucedemo.com/cart.html")
+"""
+        result = validate_generated_locator_quality(code)
+        assert result is not None
+        assert "too weak" in result

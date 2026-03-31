@@ -3,7 +3,7 @@
 
 from typing import Any
 
-from src.user_story_parser import FeatureParser, FeatureSpecification
+from src.user_story_parser import FeatureParser, FeatureSpecification, RequirementModel
 
 
 class TestFeatureSpecification:
@@ -29,6 +29,25 @@ class TestFeatureSpecification:
         assert result["user_story"] == "As a user I want to login"
         assert result["acceptance_criteria"] == ["login form exists", "enter username"]
         assert result["criteria_count"] == 2
+
+
+class TestRequirementModel:
+    """Tests for RequirementModel dataclass."""
+
+    def test_count_property(self) -> None:
+        """Count should match number of lines."""
+        model = RequirementModel(lines=["one", "two"], source="acceptance_criteria")
+        assert model.count == 2
+
+    def test_to_text(self) -> None:
+        """to_text should join lines with newlines."""
+        model = RequirementModel(lines=["one", "two"], source="acceptance_criteria")
+        assert model.to_text() == "one\ntwo"
+
+    def test_to_numbered_text(self) -> None:
+        """to_numbered_text should render stable numbering."""
+        model = RequirementModel(lines=["one", "two"], source="acceptance_criteria")
+        assert model.to_numbered_text() == "1. one\n2. two"
 
 
 class TestFeatureParser:
@@ -315,3 +334,72 @@ Additional story text
         assert result.success is False
         assert result.specification is None
         assert result.error_message is not None
+
+    def test_build_requirement_model_prefers_explicit_acceptance_criteria(self) -> None:
+        """Explicit acceptance criteria should be used as the requirement model."""
+        parser = FeatureParser()
+        text = """## User Story
+As a user I want to login
+
+## Acceptance Criteria
+- Login form exists
+- Login succeeds
+"""
+        result = parser.parse(text)
+        assert result.success is True
+        assert result.specification is not None
+
+        model = parser.build_requirement_model(result.specification)
+        assert model.source == "acceptance_criteria"
+        assert model.lines == ["Login form exists", "Login succeeds"]
+
+    def test_build_requirement_model_derives_from_multiline_story(self) -> None:
+        """Multiline story without criteria should derive one requirement per line."""
+        parser = FeatureParser()
+        text = """Open login page
+Enter username and password
+Click Login
+Verify inventory page is visible"""
+        result = parser.parse(text)
+        assert result.success is True
+        assert result.specification is not None
+
+        model = parser.build_requirement_model(result.specification)
+        assert model.source == "derived_from_story"
+        assert model.lines == [
+            "Open login page",
+            "Enter username and password",
+            "Click Login",
+            "Verify inventory page is visible",
+        ]
+
+    def test_build_requirement_model_skips_leading_as_a_line_when_multiline(self) -> None:
+        """Leading 'As a ...' line should be treated as story framing, not criterion."""
+        parser = FeatureParser()
+        text = """As a user I want to be able to
+log in
+add items to cart
+go to cart"""
+        result = parser.parse(text)
+        assert result.success is True
+        assert result.specification is not None
+
+        model = parser.build_requirement_model(result.specification)
+        assert model.source == "derived_from_story"
+        assert model.lines == [
+            "log in",
+            "add items to cart",
+            "go to cart",
+        ]
+
+    def test_build_requirement_model_single_line_story_fallback(self) -> None:
+        """Single-line story without criteria should fallback to one requirement."""
+        parser = FeatureParser()
+        text = "As a user I want to login"
+        result = parser.parse(text)
+        assert result.success is True
+        assert result.specification is not None
+
+        model = parser.build_requirement_model(result.specification)
+        assert model.source == "story_fallback"
+        assert model.lines == ["As a user I want to login"]

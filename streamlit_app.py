@@ -10,13 +10,16 @@ from typing import Any
 import streamlit as st
 
 from src.code_validator import (
+    validate_generated_locator_quality as _validate_locator_quality,
+)
+from src.code_validator import (
     validate_python_syntax as _validate_python_syntax,
 )
 from src.code_validator import (
     validate_test_function as _validate_test_function,
 )
 from src.file_utils import rename_test_file
-from src.user_story_parser import FeatureParser
+from src.user_story_parser import FeatureParser, RequirementModel
 
 try:
     from src.file_utils import normalise_code_newlines as _normalise
@@ -29,9 +32,22 @@ except ImportError:
 from dotenv import load_dotenv
 
 from src.coverage_utils import build_coverage_analysis
-from src.page_context_scraper import scrape_multiple_pages, scrape_page_context
-from src.prompt_utils import get_streamlit_system_prompt_template
-from src.pytest_output_parser import RunResult, parse_pytest_output
+from src.page_context_scraper import (
+    CredentialProfile,
+    MultiPageContext,
+    execute_journey,
+    scrape_multiple_pages,
+    scrape_page_context,
+)
+from src.prompt_utils import (
+    build_page_context_prompt_block,
+    get_streamlit_system_prompt_template,
+)
+from src.pytest_output_parser import (
+    RunResult,
+    format_pytest_output_for_display,
+    parse_pytest_output,
+)
 from src.report_utils import (
     build_report_dicts,
     generate_html_report,
@@ -57,6 +73,15 @@ _session_defaults = {
     "page_context": None,
     "selected_model": "llama3.2",
     "confirmed_paste": "",
+    "input_mode": "paste",
+    "requirements_source": "",
+    # AI-009 Phase B: Credential profiles
+    "credentials_enabled": False,
+    "credential_profiles": [],
+    "active_credential_profile": None,
+    # AI-009 Phase B: Journey steps
+    "journey_steps": [],
+    "journey_expanded": False,
 }
 
 
@@ -79,7 +104,17 @@ def display_run_button() -> None:
         with st.spinner("⏳ Running tests..."):
             try:
                 result = subprocess.run(
-                    ["pytest", saved_path, "-v", "--tb=short"],
+                    [
+                        "pytest",
+                        "-o",
+                        "addopts=",
+                        "--browser=chromium",
+                        "--screenshot=only-on-failure",
+                        saved_path,
+                        "-v",
+                        "--tb=short",
+                        "--maxfail=5",
+                    ],
                     capture_output=True,
                     text=True,
                     timeout=300,
@@ -126,9 +161,10 @@ def display_run_button() -> None:
             if r.status == "failed" and r.error_message:
                 st.warning(f"⚠️ **{r.name}**\n\n`{r.error_message}`")
 
-        # Raw output expander - expanded only on failure
-        with st.expander("📄 Raw Output", expanded=run_result.failed > 0):
-            st.code(run_result.raw_output, language="plaintext")
+        filtered_output = format_pytest_output_for_display(run_result.raw_output)
+        if filtered_output:
+            with st.expander("📄 Technical Output (filtered)", expanded=run_result.failed > 0):
+                st.code(filtered_output, language="plaintext")
 
 
 def display_coverage(coverage_analysis: dict[str, Any] | None = None, run_result: RunResult | None = None) -> None:
@@ -218,7 +254,7 @@ def get_system_prompt() -> str:
     return get_streamlit_system_prompt_template()
 
 
-def parse_feature_text(content: str) -> tuple[str, str, int, str | None]:
+def parse_feature_text(content: str) -> tuple[str, RequirementModel | None, str | None]:
     """
     Parse a feature specification string into user story and acceptance criteria.
 
@@ -228,23 +264,390 @@ def parse_feature_text(content: str) -> tuple[str, str, int, str | None]:
         content: Raw feature specification text
 
     Returns:
-        Tuple of (user_story_text, acceptance_criteria_text, criteria_count, error_message)
+        Tuple of (user_story_text, requirement_model, error_message)
     """
     parser = FeatureParser()
     result = parser.parse(content)
 
     if not result.success:
-        return "", "", 0, result.error_message
+        return "", None, result.error_message
 
     if result.specification is None:
-        return "", "", 0, "Parse failed"
+        return "", None, "Parse failed"
+
+    requirement_model = parser.build_requirement_model(result.specification)
+    if requirement_model.count == 0:
+        return "", None, "No requirements found in input"
 
     return (
         result.specification.user_story,
-        "\n".join(result.specification.acceptance_criteria),
-        result.specification.criteria_count,
+        requirement_model,
         None,
     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# AI-009 Phase B: Credential profiles helper functions
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def _convert_urls_to_journey(additional_urls: str) -> list[dict]:
+    """
+    Convert additional URLs textarea into journey steps.
+
+    Each URL becomes: goto → capture sequence.
+
+    Args:
+        additional_urls: Newline-separated URLs from textarea
+
+    Returns:
+        List of step dicts ready for journey_steps session state
+    """
+    urls = [url.strip() for url in additional_urls.splitlines() if url.strip()]
+    steps = []
+
+    for idx, url in enumerate(urls):
+        steps.append(
+            {
+                "step_type": "goto",
+                "url": url,
+                "selector": None,
+                "visible_text": None,
+                "value": None,
+                "label": f"Navigate to {url}",
+                "capture_label": None,
+            }
+        )
+        steps.append(
+            {
+                "step_type": "capture",
+                "url": None,
+                "selector": None,
+                "visible_text": None,
+                "value": None,
+                "label": f"Capture {url}",
+                "capture_label": f"Page {idx + 1}",
+            }
+        )
+
+    return steps
+
+
+def _render_journey_builder_section() -> None:
+    """
+    Render the journey builder UI section.
+
+    Displays:
+    - Journey steps list with dynamic fields per step type
+    - Add/Remove step buttons
+    - "Build from URL list" helper
+    """
+    with st.expander(
+        "🗺️ Journey steps (optional — for dynamic or authenticated pages)", expanded=st.session_state.journey_expanded
+    ):
+        st.session_state.journey_expanded = True
+
+        st.markdown("""
+**Define the steps the scraper will follow.** Each step is executed in order:
+
+- **Goto**: Navigate directly to a URL
+- **Click**: Click an element by selector or visible text
+- **Fill**: Fill an input field with a value (use `{{username}}` or `{{password}}` placeholders)
+- **Submit**: Click a submit button or press Enter
+- **Capture**: Collect page context at the current page
+- **Wait**: Wait for a selector to appear before continuing
+
+**Important**: Add a **Capture** step wherever you want page context collected.
+""")
+
+        # Ensure journey_steps exists
+        if "journey_steps" not in st.session_state:
+            st.session_state.journey_steps = []
+
+        # Render existing steps
+        for idx, step in enumerate(st.session_state.journey_steps):
+            with st.container():
+                col1, col2, col3 = st.columns([1, 4, 1])
+
+                with col1:
+                    step["step_type"] = st.selectbox(
+                        "Type",
+                        options=["goto", "click", "fill", "submit", "capture", "wait"],
+                        index=["goto", "click", "fill", "submit", "capture", "wait"].index(step["step_type"])
+                        if step["step_type"] in ["goto", "click", "fill", "submit", "capture", "wait"]
+                        else 0,
+                        key=f"step_{idx}_type",
+                        label_visibility="collapsed",
+                    )
+
+                with col2:
+                    step_type = step["step_type"]
+
+                    if step_type == "goto":
+                        step["url"] = st.text_input(
+                            "URL",
+                            value=step.get("url", ""),
+                            key=f"step_{idx}_url",
+                            label_visibility="collapsed",
+                        )
+                        step["label"] = st.text_input(
+                            "Label",
+                            value=step.get("label", ""),
+                            key=f"step_{idx}_label",
+                            placeholder="e.g., Navigate to dashboard",
+                            label_visibility="collapsed",
+                        )
+
+                    elif step_type == "click":
+                        click_mode = st.radio(
+                            "Click by",
+                            options=["selector", "visible_text"],
+                            index=0 if step.get("selector") else 1,
+                            key=f"step_{idx}_click_mode",
+                            label_visibility="collapsed",
+                            horizontal=True,
+                        )
+                        if click_mode == "selector":
+                            step["selector"] = st.text_input(
+                                "Selector",
+                                value=step.get("selector", ""),
+                                key=f"step_{idx}_selector",
+                                placeholder="#submit-button",
+                                label_visibility="collapsed",
+                            )
+                            step["visible_text"] = None
+                        else:
+                            step["visible_text"] = st.text_input(
+                                "Visible text",
+                                value=step.get("visible_text", ""),
+                                key=f"step_{idx}_visible_text",
+                                placeholder="e.g., Sign in",
+                                label_visibility="collapsed",
+                            )
+                            step["selector"] = None
+                        step["label"] = st.text_input(
+                            "Label",
+                            value=step.get("label", ""),
+                            key=f"step_{idx}_label_click",
+                            placeholder="e.g., Click login button",
+                            label_visibility="collapsed",
+                        )
+
+                    elif step_type == "fill":
+                        step["selector"] = st.text_input(
+                            "Selector",
+                            value=step.get("selector", ""),
+                            key=f"step_{idx}_selector",
+                            placeholder="#username",
+                            label_visibility="collapsed",
+                        )
+                        step["value"] = st.text_input(
+                            "Value",
+                            value=step.get("value", ""),
+                            key=f"step_{idx}_value",
+                            placeholder="Use {{username}} or {{password}} for credentials",
+                            label_visibility="collapsed",
+                        )
+                        step["label"] = st.text_input(
+                            "Label",
+                            value=step.get("label", ""),
+                            key=f"step_{idx}_label_fill",
+                            placeholder="e.g., Fill username",
+                            label_visibility="collapsed",
+                        )
+
+                    elif step_type == "submit":
+                        step["selector"] = st.text_input(
+                            "Selector",
+                            value=step.get("selector", ""),
+                            key=f"step_{idx}_selector_submit",
+                            placeholder="#login-form button[type='submit']",
+                            label_visibility="collapsed",
+                        )
+                        step["label"] = st.text_input(
+                            "Label",
+                            value=step.get("label", ""),
+                            key=f"step_{idx}_label_submit",
+                            placeholder="e.g., Submit login form",
+                            label_visibility="collapsed",
+                        )
+
+                    elif step_type == "capture":
+                        step["capture_label"] = st.text_input(
+                            "Page label",
+                            value=step.get("capture_label", ""),
+                            key=f"step_{idx}_capture_label",
+                            placeholder="e.g., Dashboard page, Cart page",
+                            label_visibility="collapsed",
+                        )
+                        step["label"] = st.text_input(
+                            "Step label",
+                            value=step.get("label", ""),
+                            key=f"step_{idx}_label_capture",
+                            placeholder="e.g., Capture dashboard state",
+                            label_visibility="collapsed",
+                        )
+
+                    elif step_type == "wait":
+                        wait_mode = st.radio(
+                            "Wait for",
+                            options=["selector", "text"],
+                            index=0 if step.get("selector") else 1,
+                            key=f"step_{idx}_wait_mode",
+                            label_visibility="collapsed",
+                            horizontal=True,
+                        )
+                        if wait_mode == "selector":
+                            step["selector"] = st.text_input(
+                                "Selector",
+                                value=step.get("selector", ""),
+                                key=f"step_{idx}_selector_wait",
+                                placeholder="#loading-spinner",
+                                label_visibility="collapsed",
+                            )
+                        else:
+                            step["wait_text"] = st.text_input(
+                                "Text to appear",
+                                value=step.get("wait_text", ""),
+                                key=f"step_{idx}_wait_text",
+                                placeholder="e.g., 'Logged in successfully'",
+                                label_visibility="collapsed",
+                            )
+                        step["label"] = st.text_input(
+                            "Label",
+                            value=step.get("label", ""),
+                            key=f"step_{idx}_label_wait",
+                            placeholder="e.g., Wait for login complete",
+                            label_visibility="collapsed",
+                        )
+
+                with col3:
+                    if st.button("🗑️", key=f"step_{idx}_remove", type="primary", help="Remove step"):
+                        st.session_state.journey_steps.pop(idx)
+                        st.rerun()
+
+        # Control buttons row
+        btn_col1, btn_col2 = st.columns([1, 1])
+
+        with btn_col1:
+            if st.button("➕ Add step", use_container_width=True):
+                st.session_state.journey_steps.append(
+                    {
+                        "step_type": "goto",
+                        "url": "",
+                        "selector": None,
+                        "visible_text": None,
+                        "value": None,
+                        "label": "",
+                        "capture_label": None,
+                    }
+                )
+                st.rerun()
+
+        with btn_col2:
+            # Get additional URLs if defined
+            additional_urls_raw = st.session_state.get("additional_urls", "")
+            if additional_urls_raw.strip():
+                if st.button("⚡ Build from URL list → journey steps", use_container_width=True, type="secondary"):
+                    new_steps = _convert_urls_to_journey(additional_urls_raw)
+                    st.session_state.journey_steps = new_steps
+                    st.success(f"Created {len(new_steps)} steps from {len(additional_urls_raw.split(chr(10)))} URLs")
+                    st.rerun()
+            else:
+                st.info("Add URLs in 'Add more pages' section, then click 'Build from URL list'")
+
+
+def _render_credential_profiles_section() -> None:
+    """
+    Render the credential profiles section of the UI.
+
+    Displays:
+    - Toggle to enable/disable authentication
+    - List of credential profiles (label, username, password)
+    - Add/remove profile buttons
+    - Active profile selector
+    """
+    # Get current values
+    credentials_enabled = st.session_state.get("credentials_enabled", False)
+    profiles = st.session_state.get("credential_profiles", [])
+
+    # Toggle
+    credentials_enabled = st.toggle(
+        "🔐 Pages require login",
+        value=credentials_enabled,
+        key="credentials_enabled",
+    )
+
+    if not credentials_enabled:
+        st.session_state.active_credential_profile = None
+        return
+
+    # Show profiles only if enabled
+    if profiles:
+        st.markdown("**Credential Profiles**")
+        for idx, profile in enumerate(profiles):
+            col1, col2, col3, col4 = st.columns([2, 3, 3, 0.5])
+
+            with col1:
+                profile["label"] = st.text_input(
+                    "Label",
+                    key=f"cred_profile_{idx}_label",
+                    value=profile.get("label", ""),
+                    placeholder="e.g., Admin user",
+                    label_visibility="collapsed",
+                )
+
+            with col2:
+                profile["username"] = st.text_input(
+                    "Username",
+                    key=f"cred_profile_{idx}_username",
+                    value=profile.get("username", ""),
+                    placeholder="email or username",
+                    label_visibility="collapsed",
+                )
+
+            with col3:
+                profile["password"] = st.text_input(
+                    "Password",
+                    key=f"cred_profile_{idx}_password",
+                    value=profile.get("password", ""),
+                    placeholder="password",
+                    type="password",
+                    label_visibility="collapsed",
+                )
+
+            with col4:
+                if st.button("❌", key=f"cred_profile_{idx}_remove"):
+                    profiles.pop(idx)
+                    st.rerun()
+
+        # Re-save profiles after modifications
+        st.session_state.credential_profiles = profiles
+
+    # Add profile button
+    if st.button("+ Add credential profile", type="secondary"):
+        profiles.append({"label": "", "username": "", "password": ""})
+        st.session_state.credential_profiles = profiles
+        st.rerun()
+
+    # Active profile selector
+    if profiles:
+        profile_labels = [p.get("label", f"Profile {i + 1}") for i, p in enumerate(profiles)]
+        active_idx = 0
+        active_profile_val = st.session_state.get("active_credential_profile")
+        if isinstance(active_profile_val, int) and 0 <= active_profile_val < len(profile_labels):
+            active_idx = active_profile_val
+            # Migrate legacy index-based value to current label-based value.
+            st.session_state.active_credential_profile = profile_labels[active_idx]
+        elif isinstance(active_profile_val, str) and active_profile_val in profile_labels:
+            active_idx = profile_labels.index(active_profile_val)
+        st.selectbox(
+            "Active Profile",
+            options=profile_labels,
+            index=active_idx,
+            key="active_credential_profile",
+            label_visibility="collapsed",
+        )
 
 
 def main() -> None:
@@ -261,6 +664,12 @@ def main() -> None:
         value="https://",
         help="Full URL including https:// — used for page scraping and test navigation",
     )
+
+    # ── AI-009 Phase B: Credential profiles section ────────────────────
+    _render_credential_profiles_section()
+
+    # ── AI-009 Phase B: Journey builder section ───────────────────────
+    _render_journey_builder_section()
 
     # ── AI-009: Additional page URLs for multi-page scraping ──────────────────
     with st.expander("➕ Add more pages to scrape (optional)", expanded=False):
@@ -290,11 +699,45 @@ def main() -> None:
     )
     st.session_state.selected_model = selected_model
 
-    tab_file, tab_text = st.tabs(["📄 Upload .md file", "✏️ Paste story"])
-
     content: str = ""
 
-    with tab_file:
+    def _build_credential_profiles() -> list[CredentialProfile]:
+        """Build CredentialProfile objects from session state."""
+        profiles_data = st.session_state.get("credential_profiles", [])
+        return [
+            CredentialProfile(
+                label=p.get("label", ""),
+                username=p.get("username", ""),
+                password=p.get("password", ""),
+            )
+            for p in profiles_data
+        ]
+
+    def _get_active_profile_label() -> str | None:
+        """Get the label of the active credential profile."""
+        active_profile = st.session_state.get("active_credential_profile")
+        profiles = st.session_state.get("credential_profiles", [])
+        if not profiles:
+            return None
+        if isinstance(active_profile, str):
+            return active_profile if active_profile else None
+        if isinstance(active_profile, int) and 0 <= active_profile < len(profiles):
+            return profiles[active_profile].get("label", "")
+        # Backward-compatible default when a single profile exists
+        if len(profiles) == 1:
+            return profiles[0].get("label", "") or None
+        return None
+
+    input_mode = st.radio(
+        "Input mode",
+        options=["📄 Upload .md file", "✏️ Paste story"],
+        index=0 if st.session_state.get("input_mode") == "upload" else 1,
+        horizontal=True,
+        key="input_mode_selector",
+    )
+    st.session_state.input_mode = "upload" if input_mode.startswith("📄") else "paste"
+
+    if st.session_state.input_mode == "upload":
         feature_spec_file = st.file_uploader(
             "Upload Feature Specification (MD)",
             type=["md"],
@@ -304,8 +747,7 @@ def main() -> None:
             content = feature_spec_file.read().decode("utf-8")
             with st.expander("📋 Preview uploaded file", expanded=False):
                 st.markdown(content)
-
-    with tab_text:
+    else:
         pasted = st.text_area(
             "Paste your user story and acceptance criteria",
             height=300,
@@ -321,7 +763,7 @@ def main() -> None:
         )
         if st.session_state.get("confirmed_paste", "").strip():
             content = st.session_state.confirmed_paste
-            st.success("✅ Story loaded — click **Generate Tests** below.")
+            st.success("✅ Story loaded - click **Generate Tests** below.")
         elif pasted.strip():
             content = pasted
 
@@ -330,7 +772,7 @@ def main() -> None:
         return
 
     # ── Parse content (shared path for both inputs) ───────────────────────────
-    user_story_text, acceptance_criteria_text, criteria_count, error = parse_feature_text(content)
+    user_story_text, requirement_model, error = parse_feature_text(content)
 
     if error:
         st.error(f"Failed to parse input: {error}")
@@ -340,14 +782,21 @@ def main() -> None:
         st.error("Couldn't find a user story. Add a '## User Story' heading or just type your story directly.")
         return
 
-    if not acceptance_criteria_text:
+    if requirement_model is None:
+        st.error("Couldn't derive a requirement model from input.")
+        return
+
+    requirement_lines = requirement_model.lines
+    criteria_count = requirement_model.count
+    acceptance_criteria_text = requirement_model.to_numbered_text()
+    st.session_state.requirements_source = requirement_model.source
+
+    if requirement_model.source != "acceptance_criteria":
         st.info(
-            "No '## Acceptance Criteria' section found - the AI will generate tests "
-            "from your story directly. For more precise control, add an "
-            "**## Acceptance Criteria** section with one criterion per line."
+            "No explicit '## Acceptance Criteria' section found. "
+            "Using derived requirement lines from your pasted story so parsing, "
+            "coverage, and reports stay consistent."
         )
-        acceptance_criteria_text = user_story_text
-        criteria_count = 1
 
     st.sidebar.markdown(f"**Criteria Count**: {criteria_count}")
 
@@ -369,14 +818,75 @@ def main() -> None:
             scrape_url = "https://" + scrape_url
 
         page_context_block = ""
-        if additional_urls:
-            # AI-009: Multi-page scraping
+
+        # Decision tree: journey_steps → additional_urls → single page
+        journey_steps = st.session_state.get("journey_steps", [])
+        credential_profiles = _build_credential_profiles() if st.session_state.get("credentials_enabled", False) else []
+        active_profile_label = _get_active_profile_label() if credential_profiles else None
+
+        if journey_steps:
+            # Execute journey-based scraping (Phase B)
+            with st.spinner("🗺️ Executing scraping journey..."):
+                try:
+                    from src.page_context_scraper import JourneyStep
+
+                    journey_steps_objects = [
+                        JourneyStep(
+                            step_type=s["step_type"],
+                            url=s.get("url"),
+                            selector=s.get("selector"),
+                            visible_text=s.get("visible_text"),
+                            value=s.get("value"),
+                            label=s.get("label"),
+                            capture_label=s.get("capture_label"),
+                        )
+                        for s in journey_steps
+                    ]
+
+                    journey_result = execute_journey(
+                        journey_steps=journey_steps_objects,
+                        credential_profiles=credential_profiles,
+                        active_profile_label=active_profile_label,
+                    )
+
+                    # Surface errors/warnings from scraper
+                    for step in journey_result.failed_steps:
+                        st.sidebar.warning(f"⚠️ Scraper: {step}")
+                    for url in journey_result.redirected_urls:
+                        st.sidebar.warning(f"⚠️ Scraper: Auth redirect detected for {url}")
+                    if journey_result.error_message:
+                        st.sidebar.error(f"⚠️ {journey_result.error_message}")
+
+                    # Add captured pages
+                    if journey_result.captured_pages:
+                        st.sidebar.success(f"✅ Captured {len(journey_result.captured_pages)} pages from journey")
+                        for page in journey_result.captured_pages:
+                            st.sidebar.caption(f"  • {page.url} → {page.element_count()} elements")
+                        page_context_block = MultiPageContext(
+                            base_url=scrape_url,
+                            pages=journey_result.captured_pages,
+                        ).to_prompt_block()
+
+                    if journey_result.success:
+                        st.sidebar.success("✅ Journey completed successfully")
+                    else:
+                        st.sidebar.warning("⚠️ Journey completed with some failures")
+
+                except Exception as e:
+                    st.sidebar.warning(f"⚠️ Journey scraper failed: {e} — generating without page context")
+
+        elif additional_urls:
+            # AI-009 Phase A: Multi-page scraping (static URLs)
             total_pages = 1 + len(additional_urls)
             with st.spinner(f"🔍 Scraping {total_pages} pages..."):
                 try:
                     multi_ctx, scraper_state = scrape_multiple_pages(
                         base_url=scrape_url,
                         additional_urls=additional_urls,
+                        credential_profiles=credential_profiles,
+                        active_profile_label=active_profile_label,
+                        restart_from_base=True,
+                        max_attempts_per_page=2,
                     )
                     if not multi_ctx.is_empty:
                         page_context_block = multi_ctx.to_prompt_block()
@@ -409,18 +919,8 @@ def main() -> None:
                 except Exception as e:
                     st.sidebar.warning(f"⚠️ Scraper failed: {e} — generating without page context")
 
-        prompt_template = f"""
-### PAGE CONTEXT (If available):
-{page_context_block}
-### END PAGE CONTEXT
-
-### GENERATION INSTRUCTIONS:
-- If PAGE CONTEXT is provided above, use ONLY the locators listed there.
-- Do NOT invent selectors not in the PAGE CONTEXT.
-- For assertions after navigation, use `expect(page).to_have_url()` or `expect(page).to_have_title()` instead of making up element IDs like `#react-basics`.
-
-"""
-        full_prompt = system_prompt + prompt_template
+        page_context_prompt = build_page_context_prompt_block(page_context_block)
+        full_prompt = f"{system_prompt}\n\n{page_context_prompt}"
         # DEBUG: Log prompt being sent to LLM
         st.sidebar.info(f"🔍 Full prompt length: {len(full_prompt)} chars")
         if page_context_block:
@@ -455,12 +955,19 @@ def main() -> None:
                     st.code(normalised_code, language="python")
                     return
 
+                locator_error = _validate_locator_quality(normalised_code)
+                if locator_error:
+                    st.error(f"❌ Generated code failed locator quality validation: {locator_error}")
+                    st.code(normalised_code, language="python")
+                    st.info("Try regenerating with a stronger model (dense/large) or richer page context.")
+                    return
+
                 st.session_state.saved_test_path = saved_path
                 st.session_state.generated_code = normalised_code
 
                 # Build coverage analysis
                 st.session_state.coverage_analysis = build_coverage_analysis(
-                    acceptance_criteria_lines=acceptance_criteria_text.split("\n"),
+                    acceptance_criteria_lines=requirement_lines,
                     generated_code=normalised_code,
                 )
 

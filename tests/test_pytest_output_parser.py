@@ -6,7 +6,12 @@ Uses real pytest output strings as fixtures to verify parsing accuracy.
 
 import pytest
 
-from src.pytest_output_parser import RunResult, TestResult, parse_pytest_output
+from src.pytest_output_parser import (
+    RunResult,
+    TestResult,
+    format_pytest_output_for_display,
+    parse_pytest_output,
+)
 
 
 @pytest.fixture
@@ -301,3 +306,27 @@ t.py::test_b FAILED [100%]
         assert result.passed == 0
         assert result.failed == 2
         assert result.duration == pytest.approx(2.10, abs=0.01)
+
+
+class TestFormatPytestOutputForDisplay:
+    """Tests for filtered pytest output formatter."""
+
+    def test_filters_low_signal_lines(self) -> None:
+        """Formatter should remove environment and coverage boilerplate."""
+        raw = """platform win32 -- Python 3.13.0, pytest-8.0.0
+plugins: cov-4.1.0
+generated_tests/test_sample.py::test_01_login PASSED [100%]
+---------- coverage: platform win32, python 3.13.0-final-0 -----------
+Name    Stmts   Miss
+================================= 1 passed in 1.20s ================================="""
+        filtered = format_pytest_output_for_display(raw)
+        assert "platform win32" not in filtered
+        assert "coverage:" not in filtered
+        assert "test_01_login PASSED" in filtered
+        assert "1 passed in 1.20s" in filtered
+
+    def test_fallback_keeps_recent_lines_when_no_matches(self) -> None:
+        """Formatter should still return readable output when patterns do not match."""
+        raw = "line1\nline2\nline3\n"
+        filtered = format_pytest_output_for_display(raw, max_lines=2)
+        assert filtered == "line2\nline3"

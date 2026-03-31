@@ -15,6 +15,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from src.page_context_scraper import (
+    CredentialProfile,
+    JourneyResult,
     MultiPageContext,
     PageContext,
     PageElement,
@@ -393,6 +395,145 @@ class TestScrapeMultiplePages:
         )
 
         assert len(callbacks_received) == 2
+
+    @patch("src.page_context_scraper.execute_journey")
+    @patch("src.page_context_scraper.scrape_page_context")
+    def test_restart_from_base_uses_journey_for_additional_urls(
+        self, mock_scrape: MagicMock, mock_execute_journey: MagicMock
+    ) -> None:
+        """When restart_from_base is enabled, additional URLs use journey execution."""
+        base_context = PageContext(url="http://example.com/login", page_title="Login", h1_text=None)
+        target_context = PageContext(url="http://example.com/cart", page_title="Cart", h1_text=None)
+        mock_scrape.return_value = (base_context, None)
+        mock_execute_journey.return_value = JourneyResult(
+            success=True,
+            captured_pages=[target_context],
+            failed_steps=[],
+            error_message=None,
+            redirected_urls=[],
+        )
+
+        result, state = scrape_multiple_pages(
+            base_url="http://example.com/login",
+            additional_urls=["http://example.com/cart"],
+            credential_profiles=[CredentialProfile(label="A", username="u", password="p")],
+            active_profile_label="A",
+            restart_from_base=True,
+            max_attempts_per_page=2,
+        )
+
+        assert result.success_count == 2
+        assert state.status == "complete"
+        assert mock_execute_journey.call_count == 1
+
+    @patch("src.page_context_scraper.execute_journey")
+    @patch("src.page_context_scraper.scrape_page_context")
+    def test_restart_from_base_retries_failed_navigation(
+        self, mock_scrape: MagicMock, mock_execute_journey: MagicMock
+    ) -> None:
+        """Failed additional-page navigation should retry from base with limited attempts."""
+        base_context = PageContext(url="http://example.com/login", page_title="Login", h1_text=None)
+        target_context = PageContext(url="http://example.com/checkout", page_title="Checkout", h1_text=None)
+        mock_scrape.return_value = (base_context, None)
+        mock_execute_journey.side_effect = [
+            JourneyResult(
+                success=False,
+                captured_pages=[],
+                failed_steps=["attempt 1 failed"],
+                error_message="attempt 1 failed",
+                redirected_urls=[],
+            ),
+            JourneyResult(
+                success=True,
+                captured_pages=[target_context],
+                failed_steps=[],
+                error_message=None,
+                redirected_urls=[],
+            ),
+        ]
+
+        result, state = scrape_multiple_pages(
+            base_url="http://example.com/login",
+            additional_urls=["http://example.com/checkout"],
+            restart_from_base=True,
+            max_attempts_per_page=2,
+        )
+
+        assert result.success_count == 2
+        assert state.status == "complete"
+        assert mock_execute_journey.call_count == 2
+
+    @patch("src.page_context_scraper.execute_journey")
+    @patch("src.page_context_scraper.scrape_page_context")
+    def test_restart_from_base_retries_when_captured_url_mismatches_target(
+        self, mock_scrape: MagicMock, mock_execute_journey: MagicMock
+    ) -> None:
+        """Captured context should only be accepted when its URL matches the requested target."""
+        base_context = PageContext(url="http://example.com/login", page_title="Login", h1_text=None)
+        wrong_context = PageContext(url="http://example.com/inventory", page_title="Inventory", h1_text=None)
+        target_context = PageContext(url="http://example.com/checkout", page_title="Checkout", h1_text=None)
+        mock_scrape.return_value = (base_context, None)
+        mock_execute_journey.side_effect = [
+            JourneyResult(
+                success=True,
+                captured_pages=[wrong_context],
+                failed_steps=[],
+                error_message=None,
+                redirected_urls=[],
+            ),
+            JourneyResult(
+                success=True,
+                captured_pages=[target_context],
+                failed_steps=[],
+                error_message=None,
+                redirected_urls=[],
+            ),
+        ]
+
+        result, state = scrape_multiple_pages(
+            base_url="http://example.com/login",
+            additional_urls=["http://example.com/checkout"],
+            restart_from_base=True,
+            max_attempts_per_page=2,
+        )
+
+        assert result.success_count == 2
+        assert state.status == "complete"
+        assert mock_execute_journey.call_count == 2
+        assert [page.url for page in result.pages] == [
+            "http://example.com/login",
+            "http://example.com/checkout",
+        ]
+
+    @patch("src.page_context_scraper.execute_journey")
+    @patch("src.page_context_scraper.scrape_page_context")
+    def test_restart_from_base_fails_when_target_url_never_captured(
+        self, mock_scrape: MagicMock, mock_execute_journey: MagicMock
+    ) -> None:
+        """Additional URL should fail when every attempt captures a different page."""
+        base_context = PageContext(url="http://example.com/login", page_title="Login", h1_text=None)
+        wrong_context = PageContext(url="http://example.com/inventory", page_title="Inventory", h1_text=None)
+        mock_scrape.return_value = (base_context, None)
+        mock_execute_journey.return_value = JourneyResult(
+            success=True,
+            captured_pages=[wrong_context],
+            failed_steps=[],
+            error_message=None,
+            redirected_urls=[],
+        )
+
+        result, state = scrape_multiple_pages(
+            base_url="http://example.com/login",
+            additional_urls=["http://example.com/checkout"],
+            restart_from_base=True,
+            max_attempts_per_page=2,
+        )
+
+        assert result.success_count == 1
+        assert state.status == "error"
+        assert mock_execute_journey.call_count == 2
+        assert state.failed_urls
+        assert "did not match target URL" in state.failed_urls[0]
 
 
 class TestExtractContext:

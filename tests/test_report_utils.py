@@ -8,7 +8,10 @@ from typing import Any
 
 import pytest
 
+from src.coverage_utils import RequirementCoverage
+from src.pytest_output_parser import RunResult, TestResult
 from src.report_utils import (
+    build_report_dicts,
     generate_html_report,
     generate_jira_report,
     generate_local_report,
@@ -112,7 +115,7 @@ def test_generate_jira_report_with_coverage(sample_coverage: list[dict[str, Any]
     assert "# Test Coverage Report" in result
     assert "test_login_success ✅" in result
     assert "test_login_failure ❌" in result
-    assert "Total Tests: 2 | Passed: 1 | Failed: 1" in result
+    assert "Total Tests: 2 | Passed: 1 | Failed: 1 | Pending: 0 | Unknown: 0" in result
 
 
 def test_generate_html_report_with_coverage(sample_coverage: list[dict[str, Any]]) -> None:
@@ -194,10 +197,86 @@ def test_coverage_with_unknown_status() -> None:
     ]
 
     local_result = generate_local_report(sample_data)
-    assert "⚠️" in local_result or "❌" in local_result
+    assert "unknown" in local_result.lower()
 
     jira_result = generate_jira_report(sample_data)
     assert "test_peeky" in jira_result
+
+
+def test_build_report_dicts_uses_pending_before_run() -> None:
+    """Requirements with generated tests should be pending before pytest run."""
+    coverage = {
+        "requirements": [
+            RequirementCoverage(
+                id="TC-001",
+                description="Login works",
+                status="covered",
+                linked_tests=["test_01_login"],
+            )
+        ]
+    }
+    rows = build_report_dicts(coverage_analysis=coverage, run_result=None)
+    assert rows[0]["status"] == "pending"
+
+
+def test_build_report_dicts_uses_unknown_for_uncovered_without_run() -> None:
+    """Uncovered requirements should remain unknown, not failed, pre-run."""
+    coverage = {
+        "requirements": [
+            RequirementCoverage(
+                id="TC-001",
+                description="Login works",
+                status="not_covered",
+                linked_tests=[],
+            )
+        ]
+    }
+    rows = build_report_dicts(coverage_analysis=coverage, run_result=None)
+    assert rows[0]["status"] == "unknown"
+
+
+def test_reports_do_not_count_pending_as_failed() -> None:
+    """Summary should only count true failed items in failed total."""
+    coverage_rows = [
+        {"test_name": "TC-001", "status": "passed", "duration": 1.0, "screenshots": [], "error_message": ""},
+        {"test_name": "TC-002", "status": "pending", "duration": 0.0, "screenshots": [], "error_message": ""},
+    ]
+    local_report = generate_local_report(coverage_rows)
+    assert "**Failed:** 0" in local_report
+    assert "**Pending:** 1" in local_report
+
+
+def test_build_report_dicts_maps_run_statuses() -> None:
+    """Linked tests should inherit status from run results when available."""
+    coverage = {
+        "requirements": [
+            RequirementCoverage(
+                id="TC-001",
+                description="Login works",
+                status="covered",
+                linked_tests=["test_01_login"],
+            )
+        ]
+    }
+    run_result = RunResult(
+        results=[
+            TestResult(
+                name="test_01_login",
+                status="failed",
+                duration=1.2,
+                error_message="assert false",
+                file_path="generated_tests/test_demo.py",
+            )
+        ],
+        total=1,
+        passed=0,
+        failed=1,
+        errors=0,
+        duration=1.2,
+        raw_output="",
+    )
+    rows = build_report_dicts(coverage_analysis=coverage, run_result=run_result)
+    assert rows[0]["status"] == "failed"
 
 
 if __name__ == "__main__":

@@ -3,7 +3,7 @@
 
 import re
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 
 @dataclass
@@ -35,6 +35,27 @@ class ParseResult:
     success: bool
     specification: FeatureSpecification | None = None
     error_message: str | None = None
+
+
+@dataclass
+class RequirementModel:
+    """Normalized requirement list used by prompt, coverage, and reporting."""
+
+    lines: list[str]
+    source: Literal["acceptance_criteria", "derived_from_story", "story_fallback"]
+
+    @property
+    def count(self) -> int:
+        """Return number of normalized requirements."""
+        return len(self.lines)
+
+    def to_text(self) -> str:
+        """Render requirement lines for prompt injection."""
+        return "\n".join(self.lines)
+
+    def to_numbered_text(self) -> str:
+        """Render requirement lines as a numbered list."""
+        return "\n".join(f"{index}. {line}" for index, line in enumerate(self.lines, start=1))
 
 
 class FeatureParser:
@@ -188,19 +209,17 @@ class FeatureParser:
                     if clean:
                         acceptance_criteria_lines.append(clean)
 
-            # Fallback: no headings found — extract user story as first paragraph
+            # Fallback: no headings found - collect all meaningful lines as story text
             if not heading_found:
                 for line in lines:
                     stripped = line.strip()
                     if stripped and not stripped.startswith("---"):
-                        # First paragraph is the user story
-                        if stripped.lower().startswith("as a") or " want to " in stripped.lower():
+                        if not user_story_lines:
+                            user_story_lines.append(stripped)
+                        elif stripped.lower().startswith("as a") or " want to " in stripped.lower():
                             user_story_lines.append(stripped)
                         elif user_story_lines:
                             user_story_lines.append(stripped)
-                        # Stop after first paragraph
-                        if stripped.endswith("."):
-                            break
 
             user_story_text = "\n".join(user_story_lines).strip()
 
@@ -223,6 +242,29 @@ class FeatureParser:
                 success=False,
                 error_message=f"Parse error: {str(e)}",
             )
+
+    def build_requirement_model(self, specification: FeatureSpecification) -> RequirementModel:
+        """Build a consistent requirement model from parsed specification."""
+        explicit_lines = [
+            self._clean_criterion(line.strip()) for line in specification.acceptance_criteria if line.strip()
+        ]
+        explicit_lines = [line for line in explicit_lines if line]
+        if explicit_lines:
+            return RequirementModel(lines=explicit_lines, source="acceptance_criteria")
+
+        story_lines = [
+            self._clean_criterion(line.strip()) for line in specification.user_story.splitlines() if line.strip()
+        ]
+        story_lines = [line for line in story_lines if line]
+        if story_lines and story_lines[0].lower().startswith("as a "):
+            remainder = story_lines[1:]
+            if remainder:
+                story_lines = remainder
+        if len(story_lines) > 1:
+            return RequirementModel(lines=story_lines, source="derived_from_story")
+
+        fallback_line = specification.user_story.strip()
+        return RequirementModel(lines=[fallback_line] if fallback_line else [], source="story_fallback")
 
     @staticmethod
     def _clean_criterion(stripped: str) -> str:
