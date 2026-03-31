@@ -443,11 +443,18 @@ ollama pull qwen3.5:35b
 ```bash
 export OLLAMA_TIMEOUT=300
 ```
+If large models still time out, reduce prompt size by limiting scraped pages or switch to a smaller model for generation.
 
-### Generated Tests Need Locator Updates
-1. Open DevTools to inspect elements
-2. Update locators to match current application
-3. Prefer semantic selectors: `get_by_role`, `get_by_label`
+### Authenticated and Multi-Page Flow Tips
+1. Prefer journey-based scraping for authenticated pages (login -> navigate -> capture).
+2. If you see `Captured page URL did not match target URL`, the scraper reached a different page than requested and excluded that context.
+3. For deep pages, capture through the real in-app navigation path rather than assuming direct URL access.
+
+### Generated Test Quality Guardrails
+The generator validates and blocks known flaky patterns before saving code, including:
+- invalid non-existent URL variants discovered in generated assertions
+- weak negative-only URL assertions
+- overly broad locators that cause strict-mode ambiguity
 
 ### Invalid JSON Input
 Ensure your JSON file follows the expected format:

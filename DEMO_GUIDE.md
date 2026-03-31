@@ -285,9 +285,9 @@ E        +    where is_visible = <Playwright ElementHandle for text='Backpack'>.
 
 | Issue | Cause | Mitigation |
 |-------|-------|------------|
-| "No module named 'playwright'" | Playwright not installed | Run `pip install playwright` before demo |
+| "No module named 'playwright'" | Playwright not installed | Run `uv sync` and then `playwright install chromium` before demo |
 | "Ollama connection error" | Ollama not running | Start with `ollama serve` or check service |
-| Timeout during generation | Model too large (qwen3.5:35b) | Use smaller model: `ollama run qwen2.5-coder:1.5b` |
+| Timeout during generation | Model response is slower than timeout or prompt context is too large | Warm the model first, reduce scraped context size, or increase `OLLAMA_TIMEOUT` |
 | Selector not found | saucedemo.com changed UI | Have backup test URL ready (e.g., staging) |
 | Browser not found | Playwright browsers not installed | Run `playwright install chromium` |
 | Port 8501 in use | Another Streamlit app running | Use different port: `streamlit run streamlit_app.py --server.port 8502` |
@@ -355,12 +355,12 @@ streamlit run streamlit_app.py --server.enableCORS false
 > A: Regenerate the test with updated user stories. The scraper will extract new selectors automatically.
 
 **Q: Can this handle authenticated pages?**
-> A: Currently requires manually setting cookies. Planned for Phase 4 via authentication support.
+> A: Yes. Use "Pages require login" with credential profiles and journey steps so scraping follows the authenticated path.
 
 **Q: Does this work with any LLM?**
 > A: Works with Ollama-hosted models. Configurable via `.env` file for OpenAI, Anthropic, etc.
 
 ---
 
-*Last updated: 2026-03-08*
-*Demo version: 1.0*
+*Last updated: 2026-03-31*
+*Demo version: 1.1*

@@ -3,7 +3,7 @@
 > This file is the single source of truth for any AI assistant working on this project.
 > Read this file in full before writing or modifying any code. Do not rely on README.md
 > for rules — it is employer-facing documentation, not a ruleset.
-
+> Cline users: also read `.clinerules` for session and MCP behaviour rules.
 ---
 
 ## 1. What This Project Does
