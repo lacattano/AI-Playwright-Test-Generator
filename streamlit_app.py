@@ -31,7 +31,7 @@ except ImportError:
 
 from dotenv import load_dotenv
 
-from src.coverage_utils import build_coverage_analysis
+from src.coverage_utils import build_coverage_analysis, build_coverage_display_rows
 from src.page_context_scraper import (
     CredentialProfile,
     MultiPageContext,
@@ -189,45 +189,8 @@ def display_coverage(coverage_analysis: dict[str, Any] | None = None, run_result
         return
 
     requirements = coverage_analysis.get("requirements", [])
-
-    # Create rows for dataframe
-    rows = []
-    for req in requirements:
-        status_emoji = "✅" if req.status == "covered" else ("⚠️" if req.status == "partial" else "❌")
-
-        # Add Result column when run results are available
-        result_cell = ""
-        if run_result is not None:
-            # Look up test status for each linked test
-            test_statuses = []
-            for test_name in req.linked_tests:
-                # Find matching test in run results
-                for tr in run_result.results:
-                    # Match: tr.name equals or starts with test_name pattern
-                    if tr.name == test_name or tr.name.startswith(test_name):
-                        icon = "✅" if tr.status == "passed" else "❌"
-                        test_statuses.append(icon)
-                        break
-                else:
-                    test_statuses.append("⏳")  # Not in recent run
-
-            result_cell = ", ".join(test_statuses)
-
-        rows.append(
-            {
-                "ID": f"{status_emoji} {req.id}",
-                "Requirement": req.description,
-                "Status": req.status.upper(),
-                "Tests": "; ".join(req.linked_tests[:3]) + ("..." if len(req.linked_tests) > 3 else ""),
-                "Result": result_cell,
-            }
-        )
-
-    # Show dataframe with formatted columns
-    cols = ["ID", "Requirement", "Status"]
-    if run_result:
-        cols.append("Result")
-    cols.extend(["Tests"])
+    run_results = run_result.results if run_result is not None else None
+    rows = [row.to_dict() for row in build_coverage_display_rows(requirements=requirements, run_results=run_results)]
 
     st.dataframe(
         rows,

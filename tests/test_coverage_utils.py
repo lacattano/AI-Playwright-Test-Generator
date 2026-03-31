@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from src.coverage_utils import (
+    CoverageDisplayRow,
     RequirementCoverage,
     build_coverage_analysis,
+    build_coverage_display_rows,
     build_requirement_coverages,
     extract_test_names,
 )
@@ -110,3 +112,55 @@ def test_requirement_coverage_to_dict_round_trip() -> None:
     assert as_dict["description"] == "Example description"
     assert as_dict["status"] == "covered"
     assert as_dict["linked_tests"] == ["test_example"]
+
+
+def test_build_coverage_display_rows_without_run_results() -> None:
+    """Display rows should render requirement metadata with empty run result column."""
+    requirements = [
+        RequirementCoverage(
+            id="TC-001",
+            description="User can log in",
+            status="covered",
+            linked_tests=["test_01_can_log_in"],
+        )
+    ]
+    rows = build_coverage_display_rows(requirements)
+    assert len(rows) == 1
+    row = rows[0]
+    assert isinstance(row, CoverageDisplayRow)
+    assert row.id_cell.startswith("✅ ")
+    assert row.status == "COVERED"
+    assert row.result == ""
+
+
+def test_build_coverage_display_rows_with_run_results() -> None:
+    """Display rows should include pass/fail icons for linked test run statuses."""
+
+    class _RunResult:
+        def __init__(self, name: str, status: str) -> None:
+            self.name = name
+            self.status = status
+
+    requirements = [
+        RequirementCoverage(
+            id="TC-001",
+            description="User can log in",
+            status="covered",
+            linked_tests=["test_01_can_log_in"],
+        ),
+        RequirementCoverage(
+            id="TC-002",
+            description="User can checkout",
+            status="covered",
+            linked_tests=["test_02_can_checkout"],
+        ),
+    ]
+    run_results = [
+        _RunResult(name="test_01_can_log_in[chromium]", status="passed"),
+        _RunResult(name="test_02_can_checkout[chromium]", status="failed"),
+    ]
+
+    rows = build_coverage_display_rows(requirements, run_results=run_results)
+    assert len(rows) == 2
+    assert rows[0].result == "✅"
+    assert rows[1].result == "❌"
