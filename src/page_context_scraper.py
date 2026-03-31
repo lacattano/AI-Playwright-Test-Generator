@@ -181,6 +181,14 @@ class PageContext:
 
 
 @dataclass
+class ScrapeFailure:
+    """Structured failure entry for a page that could not be scraped."""
+
+    url: str
+    reason: str | None = None
+
+
+@dataclass
 class ScraperState:
     """
     Serializable state for multi-page scraper in Streamlit session_state.
@@ -193,25 +201,58 @@ class ScraperState:
     total_pages: int
     progress_percentage: float
     completed_urls: list[str]
-    failed_urls: list[str]
+    failed_pages: list[ScrapeFailure]
     error_message: str | None = None
     started_at: str | None = None
     completed_at: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to JSON-safe dictionary."""
-        return asdict(self)
+        return {
+            "status": self.status,
+            "current_page_index": self.current_page_index,
+            "total_pages": self.total_pages,
+            "progress_percentage": self.progress_percentage,
+            "completed_urls": self.completed_urls,
+            "failed_pages": [asdict(page) for page in self.failed_pages],
+            # Backward-compatible mirror for older state consumers.
+            "failed_urls": self.failed_urls,
+            "error_message": self.error_message,
+            "started_at": self.started_at,
+            "completed_at": self.completed_at,
+        }
+
+    @property
+    def failed_urls(self) -> list[str]:
+        """Return just failed URLs for backward-compatible callers."""
+        return [failure.url for failure in self.failed_pages]
+
+    def add_failure(self, url: str, reason: str | None = None) -> None:
+        """Append a typed page failure entry."""
+        self.failed_pages.append(ScrapeFailure(url=url, reason=reason))
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "ScraperState":
         """Deserialize from JSON-safe dictionary."""
+        failed_pages_data = data.get("failed_pages")
+        failed_pages: list[ScrapeFailure]
+        if isinstance(failed_pages_data, list):
+            failed_pages = [
+                ScrapeFailure(url=entry.get("url", ""), reason=entry.get("reason"))
+                for entry in failed_pages_data
+                if isinstance(entry, dict) and entry.get("url")
+            ]
+        else:
+            legacy_failed_urls = data.get("failed_urls", [])
+            failed_pages = [ScrapeFailure(url=url if isinstance(url, str) else str(url)) for url in legacy_failed_urls]
+
         return cls(
             status=data["status"],
             current_page_index=data.get("current_page_index", 0),
             total_pages=data.get("total_pages", 0),
             progress_percentage=data.get("progress_percentage", 0.0),
             completed_urls=data.get("completed_urls", []),
-            failed_urls=data.get("failed_urls", []),
+            failed_pages=failed_pages,
             error_message=data.get("error_message"),
             started_at=data.get("started_at"),
             completed_at=data.get("completed_at"),
@@ -226,12 +267,18 @@ class ScraperState:
             total_pages=total_pages,
             progress_percentage=0.0,
             completed_urls=[],
-            failed_urls=[],
+            failed_pages=[],
         )
 
     @classmethod
     def in_progress(cls, **kwargs: Any) -> "ScraperState":
         """Create state representing active scraping."""
+        if "failed_urls" in kwargs and "failed_pages" not in kwargs:
+            legacy_failed_urls = kwargs.pop("failed_urls")
+            if isinstance(legacy_failed_urls, list):
+                kwargs["failed_pages"] = [
+                    ScrapeFailure(url=url if isinstance(url, str) else str(url)) for url in legacy_failed_urls
+                ]
         return cls(
             status="scraping",
             started_at=datetime.now(UTC).isoformat(),
@@ -426,6 +473,7 @@ def scrape_multiple_pages(
     scraper_state.started_at = datetime.now(UTC).isoformat()
 
     result = MultiPageContext(base_url=base_url, pages=[])
+    base_page_context: PageContext | None = None
 
     start_time = time.monotonic()
 
@@ -448,6 +496,8 @@ def scrape_multiple_pages(
         # Base URL still uses direct scrape.
         if index == 1 or not restart_from_base:
             context, error = scrape_page_context(url, timeout_ms)
+            if index == 1 and context is not None:
+                base_page_context = context
         else:
             attempt_error: str | None = None
             for _attempt in range(1, max(max_attempts_per_page, 1) + 1):
@@ -455,32 +505,7 @@ def scrape_multiple_pages(
                     JourneyStep(step_type="goto", url=base_url, label="Start from base URL")
                 ]
                 if profiles and active_profile_label:
-                    auto_steps.extend(
-                        [
-                            JourneyStep(
-                                step_type="fill",
-                                selector="#user-name",
-                                value="{{username}}",
-                                label="Fill username",
-                            ),
-                            JourneyStep(
-                                step_type="fill",
-                                selector="#password",
-                                value="{{password}}",
-                                label="Fill password",
-                            ),
-                            JourneyStep(
-                                step_type="click",
-                                selector="#login-button",
-                                label="Submit login",
-                            ),
-                            JourneyStep(
-                                step_type="wait",
-                                selector=".inventory_list",
-                                label="Wait for post-login page",
-                            ),
-                        ]
-                    )
+                    auto_steps.extend(_build_auth_journey_steps(base_page_context))
 
                 auto_steps.extend(
                     [
@@ -519,14 +544,14 @@ def scrape_multiple_pages(
                     journey_result.error_message or "; ".join(journey_result.failed_steps) or "Auto navigation failed"
                 )
             if context is None:
-                scraper_state.failed_urls.append(f"{url} ({attempt_error or 'Auto navigation failed'})")
+                scraper_state.add_failure(url=url, reason=attempt_error or "Auto navigation failed")
                 continue
 
         if context:
             result.add_page(context)
             scraper_state.completed_urls.append(url)
         else:
-            scraper_state.failed_urls.append(url)
+            scraper_state.add_failure(url=url, reason=error)
 
     # Finalize state
     duration_ms = int((time.monotonic() - start_time) * 1000)
@@ -538,11 +563,13 @@ def scrape_multiple_pages(
     scraper_state.progress_percentage = 100.0
     scraper_state.completed_at = datetime.now(UTC).isoformat()
 
-    if scraper_state.failed_urls:
+    if scraper_state.failed_pages:
         scraper_state.status = "error"
-        scraper_state.error_message = (
-            f"Completed {result.success_count}/{total_pages} pages. Failed: {', '.join(scraper_state.failed_urls)}"
+        failure_summary = ", ".join(
+            f"{failure.url} ({failure.reason})" if failure.reason else failure.url
+            for failure in scraper_state.failed_pages
         )
+        scraper_state.error_message = f"Completed {result.success_count}/{total_pages} pages. Failed: {failure_summary}"
     else:
         scraper_state.status = "complete"
 
@@ -675,6 +702,91 @@ def _detect_sso_redirect(current_url: str, base_domain: str) -> bool:
     except Exception:
         pass
     return False
+
+
+def _selector_from_element(element: PageElement) -> str | None:
+    """Build a basic selector for an element using stable attributes when possible."""
+    if element.element_id:
+        return f"#{element.element_id}"
+    if element.name:
+        return f"[name='{element.name}']"
+    if element.placeholder:
+        return f"[placeholder='{element.placeholder}']"
+    return None
+
+
+def _build_auth_journey_steps(base_context: PageContext | None) -> list["JourneyStep"]:
+    """Infer login steps from the base page context without site-specific selectors."""
+    if base_context is None:
+        return []
+
+    username_selector: str | None = None
+    password_selector: str | None = None
+    submit_selector: str | None = None
+
+    for element in base_context.elements:
+        tag = (element.tag or "").lower()
+        input_type = (element.input_type or "").lower()
+        descriptor = " ".join(
+            [
+                element.label or "",
+                element.name or "",
+                element.element_id or "",
+                element.placeholder or "",
+                element.visible_text or "",
+            ]
+        ).lower()
+
+        if username_selector is None and tag == "input" and input_type != "password":
+            if any(keyword in descriptor for keyword in ["user", "email", "login"]):
+                username_selector = _selector_from_element(element)
+                continue
+
+        if password_selector is None and tag == "input":
+            if input_type == "password" or "password" in descriptor:
+                password_selector = _selector_from_element(element)
+                continue
+
+        if submit_selector is None and tag in {"button", "input"}:
+            if any(keyword in descriptor for keyword in ["login", "log in", "sign in", "submit", "continue"]):
+                submit_selector = _selector_from_element(element)
+
+    steps: list[JourneyStep] = []
+    if username_selector:
+        steps.append(
+            JourneyStep(
+                step_type="fill",
+                selector=username_selector,
+                value="{{username}}",
+                label="Fill username",
+            )
+        )
+    if password_selector:
+        steps.append(
+            JourneyStep(
+                step_type="fill",
+                selector=password_selector,
+                value="{{password}}",
+                label="Fill password",
+            )
+        )
+    if submit_selector:
+        steps.append(
+            JourneyStep(
+                step_type="click",
+                selector=submit_selector,
+                label="Submit login",
+            )
+        )
+        steps.append(
+            JourneyStep(
+                step_type="wait",
+                selector=None,
+                label="Wait for post-login page",
+            )
+        )
+
+    return steps
 
 
 def _auto_navigate_to_target(page: Page, target_url: str, timeout_ms: int) -> bool:

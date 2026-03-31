@@ -91,6 +91,20 @@ def init_session_state() -> None:
         if key not in st.session_state:
             st.session_state[key] = value
 
+    # Normalize legacy active credential profile values before widgets are instantiated.
+    profiles = st.session_state.get("credential_profiles", [])
+    if isinstance(profiles, list) and profiles:
+        profile_labels = [p.get("label", f"Profile {i + 1}") for i, p in enumerate(profiles)]
+        active_profile_val = st.session_state.get("active_credential_profile")
+        if isinstance(active_profile_val, int):
+            if 0 <= active_profile_val < len(profile_labels):
+                st.session_state.active_credential_profile = profile_labels[active_profile_val]
+            else:
+                st.session_state.active_credential_profile = None
+        elif isinstance(active_profile_val, str):
+            if active_profile_val not in profile_labels:
+                st.session_state.active_credential_profile = None
+
 
 def display_run_button() -> None:
     """Display the test run button and show structured results."""
@@ -635,11 +649,7 @@ def _render_credential_profiles_section() -> None:
         profile_labels = [p.get("label", f"Profile {i + 1}") for i, p in enumerate(profiles)]
         active_idx = 0
         active_profile_val = st.session_state.get("active_credential_profile")
-        if isinstance(active_profile_val, int) and 0 <= active_profile_val < len(profile_labels):
-            active_idx = active_profile_val
-            # Migrate legacy index-based value to current label-based value.
-            st.session_state.active_credential_profile = profile_labels[active_idx]
-        elif isinstance(active_profile_val, str) and active_profile_val in profile_labels:
+        if isinstance(active_profile_val, str) and active_profile_val in profile_labels:
             active_idx = profile_labels.index(active_profile_val)
         st.selectbox(
             "Active Profile",
@@ -898,8 +908,12 @@ def main() -> None:
                             st.sidebar.caption(f"  • {pg.url} → {pg.element_count()} elements")
                         # DEBUG: Log page context content
                         st.sidebar.info(f"🔍 Page Context (first 200 chars):\n{page_context_block[:200]}...")
-                    if scraper_state.failed_urls:
-                        st.sidebar.warning(f"⚠️ Failed to scrape: {', '.join(scraper_state.failed_urls)}")
+                    if scraper_state.failed_pages:
+                        failed_display = ", ".join(
+                            (f"{failure.url} ({failure.reason})" if failure.reason else failure.url)
+                            for failure in scraper_state.failed_pages
+                        )
+                        st.sidebar.warning(f"⚠️ Failed to scrape: {failed_display}")
                     if multi_ctx.is_empty:
                         st.sidebar.warning("⚠️ All pages failed — generating without page context")
                 except Exception as e:

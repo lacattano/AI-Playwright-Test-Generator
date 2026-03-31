@@ -211,26 +211,23 @@ def test_a(page):
         assert result is not None
         assert "get_by_role('link')" in result
 
-    def test_rejects_shopping_cart_button_role(self) -> None:
-        """Shopping cart modeled as button role should be rejected."""
+    def test_accepts_named_button_role_locator(self) -> None:
+        """Named role locators are valid and should pass."""
         code = """
 def test_a(page):
     page.get_by_role("button", name="shopping cart").click()
 """
         result = validate_generated_locator_quality(code)
-        assert result is not None
-        assert "shopping cart" in result
+        assert result is None
 
-    def test_rejects_saucedemo_backpack_link(self) -> None:
-        """Known ambiguous SauceDemo backpack link pattern should be rejected."""
+    def test_accepts_named_link_role_locator(self) -> None:
+        """Named link role locator should not be rejected by generic checks."""
         code = """
 def test_a(page):
-    page.goto("https://www.saucedemo.com")
-    page.get_by_role("link", name="Backpack").click()
+    page.get_by_role("link", name="Products").click()
 """
         result = validate_generated_locator_quality(code)
-        assert result is not None
-        assert "Backpack" in result
+        assert result is None
 
     def test_accepts_specific_id_or_testid_locators(self) -> None:
         """Specific locators should pass quality checks."""
@@ -267,47 +264,44 @@ def test_a(page):
         assert result is not None
         assert "except: pass" in result
 
-    def test_rejects_invalid_saucedemo_checkout_html_url(self) -> None:
-        """SauceDemo should not use non-existent /checkout.html URL."""
+    def test_accepts_generic_url_assertion(self) -> None:
+        """Positive exact URL assertions are valid in generic mode."""
         code = """
-def test_checkout(page):
-    page.goto("https://www.saucedemo.com")
-    expect(page).to_have_url("https://www.saucedemo.com/checkout.html")
+def test_navigation(page):
+    page.goto("https://example.com")
+    expect(page).to_have_url("https://example.com/dashboard")
 """
         result = validate_generated_locator_quality(code)
-        assert result is not None
-        assert "checkout.html" in result
+        assert result is None
 
-    def test_rejects_invalid_saucedemo_checkout_title_assertion(self) -> None:
-        """SauceDemo checkout page title assertion should not use UI heading as browser title."""
+    def test_accepts_generic_title_assertion(self) -> None:
+        """Title assertion is a valid generic assertion pattern."""
         code = """
-def test_checkout(page):
-    page.goto("https://www.saucedemo.com/checkout-step-one.html")
-    expect(page).to_have_title("Checkout: Your Information")
+def test_page_title(page):
+    page.goto("https://example.com")
+    expect(page).to_have_title("Example Domain")
 """
         result = validate_generated_locator_quality(code)
-        assert result is not None
-        assert "Checkout: Your Information" in result
+        assert result is None
 
-    def test_rejects_brittle_exact_saucedemo_base_url_assertion(self) -> None:
-        """SauceDemo should avoid brittle exact base URL assertions before login."""
+    def test_accepts_generic_base_url_assertion(self) -> None:
+        """Exact base URL assertions are valid in generic mode."""
         code = """
 def test_login(page):
-    page.goto("https://www.saucedemo.com")
-    expect(page).to_have_url("https://www.saucedemo.com")
+    page.goto("https://example.com")
+    expect(page).to_have_url("https://example.com")
 """
         result = validate_generated_locator_quality(code)
-        assert result is not None
-        assert "base URL" in result
+        assert result is None
 
     def test_rejects_weak_negative_checkout_url_assertion(self) -> None:
-        """SauceDemo checkout checks should not rely on negative cart URL assertions."""
+        """Negative-only URL assertions should be rejected as weak signal."""
         code = """
 def test_checkout(page):
-    page.goto("https://www.saucedemo.com/cart.html")
+    page.goto("https://example.com/cart")
     page.locator("#checkout").click()
-    expect(page).not_to_have_url("https://www.saucedemo.com/cart.html")
+    expect(page).not_to_have_url("https://example.com/cart")
 """
         result = validate_generated_locator_quality(code)
         assert result is not None
-        assert "too weak" in result
+        assert "negative-only URL assertions" in result

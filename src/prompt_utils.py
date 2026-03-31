@@ -152,6 +152,6 @@ def build_page_context_prompt_block(page_context_block: str) -> str:
         "- If PAGE CONTEXT exists, never invent new CSS/XPath selectors.\n"
         "- Use only page URLs that appear in PAGE CONTEXT. Do not invent alternate URL variants.\n"
         '- Do NOT use broad fallback selectors such as `page.locator("button")`, `page.locator("input")`, or bare tag locators.\n'
-        "- For SauceDemo cart actions, prefer the explicit `shopping-cart` locator from PAGE CONTEXT when present.\n"
+        "- Prefer positive URL assertions for expected destinations instead of negative-only URL checks.\n"
         "- For navigation assertions, use `expect(page).to_have_url()` or `expect(page).to_have_title()`.\n"
     )

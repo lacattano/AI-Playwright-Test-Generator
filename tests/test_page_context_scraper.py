@@ -21,6 +21,7 @@ from src.page_context_scraper import (
     PageContext,
     PageElement,
     ScraperState,
+    _build_auth_journey_steps,
     _build_recommended_locator,
     _extract_context,
     scrape_multiple_pages,
@@ -242,7 +243,7 @@ class TestScraperState:
             "total_pages": 5,
             "progress_percentage": 40.0,
             "completed_urls": ["http://a.com"],
-            "failed_urls": [],
+            "failed_pages": [],
             "error_message": None,
             "started_at": "2024-01-01T00:00:00Z",
             "completed_at": None,
@@ -250,6 +251,21 @@ class TestScraperState:
         state = ScraperState.from_dict(data)
         assert state.status == "scraping"
         assert state.current_page_index == 2
+
+    def test_from_dict_supports_legacy_failed_urls(self) -> None:
+        """Legacy state payloads with failed_urls should still deserialize."""
+        data = {
+            "status": "error",
+            "current_page_index": 2,
+            "total_pages": 2,
+            "progress_percentage": 100.0,
+            "completed_urls": ["http://a.com"],
+            "failed_urls": ["http://b.com"],
+            "error_message": "failed",
+        }
+        state = ScraperState.from_dict(data)
+        assert len(state.failed_pages) == 1
+        assert state.failed_pages[0].url == "http://b.com"
 
     def test_in_progress_state(self) -> None:
         """Test in_progress state factory."""
@@ -374,6 +390,9 @@ class TestScrapeMultiplePages:
 
         assert result.success_count == 1
         assert len(state.failed_urls) == 1
+        assert len(state.failed_pages) == 1
+        assert state.failed_pages[0].url == "http://example.com/2"
+        assert state.failed_pages[0].reason == "Connection failed"
         assert state.status == "error"
 
     @patch("src.page_context_scraper.scrape_page_context")
@@ -532,8 +551,8 @@ class TestScrapeMultiplePages:
         assert result.success_count == 1
         assert state.status == "error"
         assert mock_execute_journey.call_count == 2
-        assert state.failed_urls
-        assert "did not match target URL" in state.failed_urls[0]
+        assert state.failed_pages
+        assert "did not match target URL" in (state.failed_pages[0].reason or "")
 
 
 class TestExtractContext:
@@ -634,3 +653,38 @@ class TestExtractContext:
         combo_el = next((e for e in context.elements if e.tag == "combobox"), None)
         assert combo_el is not None
         assert combo_el.options == ["Apple", "Banana"]
+
+
+class TestBuildAuthJourneySteps:
+    """Tests for generic auth-step inference from page context."""
+
+    def test_returns_empty_when_no_context(self) -> None:
+        """No base context means no inferred auth steps."""
+        steps = _build_auth_journey_steps(None)
+        assert steps == []
+
+    def test_infers_username_password_and_submit_selectors(self) -> None:
+        """Infer credential and submit steps from generic login element metadata."""
+        context = PageContext(
+            url="https://example.com/login",
+            page_title="Login",
+            h1_text="Sign in",
+            elements=[
+                PageElement(tag="input", element_id="email", name="email", placeholder="Email"),
+                PageElement(tag="input", element_id="passwd", input_type="password", placeholder="Password"),
+                PageElement(tag="button", element_id="submit-login", visible_text="Sign In"),
+            ],
+        )
+
+        steps = _build_auth_journey_steps(context)
+
+        assert len(steps) == 4
+        assert steps[0].step_type == "fill"
+        assert steps[0].selector == "#email"
+        assert steps[0].value == "{{username}}"
+        assert steps[1].step_type == "fill"
+        assert steps[1].selector == "#passwd"
+        assert steps[1].value == "{{password}}"
+        assert steps[2].step_type == "click"
+        assert steps[2].selector == "#submit-login"
+        assert steps[3].step_type == "wait"

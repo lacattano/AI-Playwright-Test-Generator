@@ -86,3 +86,11 @@ def test_build_page_context_prompt_block_allows_more_than_25_locators() -> None:
     prompt_block = build_page_context_prompt_block("\n".join(locator_lines))
     approved_count = prompt_block.count("- page.get_by_test_id(")
     assert approved_count >= 30
+
+
+def test_prompt_rules_are_site_agnostic() -> None:
+    """Prompt templates should not include site-specific brand/domain rules."""
+    template = get_streamlit_system_prompt_template().lower()
+    prompt_block = build_page_context_prompt_block('=== PAGE CONTEXT ===\n[input] id="x" → page.locator("#x")').lower()
+    assert "saucedemo" not in template
+    assert "saucedemo" not in prompt_block
