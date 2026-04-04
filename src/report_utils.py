@@ -21,6 +21,28 @@ def escape_html(text: str) -> str:
     return _html.escape(text, quote=True)
 
 
+def _normalise_test_name(name: str) -> str:
+    """Return test name without pytest parameterization suffix."""
+    return name.split("[", 1)[0]
+
+
+def _find_matching_run_result(run_map: dict[str, TestResult], test_name: str) -> TestResult | None:
+    """Find run result by exact, prefix, or de-parameterized test name."""
+    direct = run_map.get(test_name)
+    if direct is not None:
+        return direct
+
+    test_name_base = _normalise_test_name(test_name)
+    for result_name, result in run_map.items():
+        if result_name == test_name:
+            return result
+        if result_name.startswith(f"{test_name}["):
+            return result
+        if _normalise_test_name(result_name) == test_name_base:
+            return result
+    return None
+
+
 def build_report_dicts(
     coverage_analysis: dict | None,
     run_result: RunResult | None,
@@ -50,7 +72,7 @@ def build_report_dicts(
 
         if linked and run_result:
             for test_name in linked:
-                found = run_map.get(test_name)
+                found = _find_matching_run_result(run_map, test_name)
                 if found is not None:
                     status = found.status
                     duration = float(found.duration)

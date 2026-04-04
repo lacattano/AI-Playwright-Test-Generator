@@ -54,6 +54,11 @@ from src.report_utils import (
     generate_jira_report,
     generate_local_report,
 )
+from src.run_utils import (
+    build_pytest_run_command,
+    extract_failed_nodeids_from_raw_output,
+    get_failed_nodeids,
+)
 from src.test_generator import TestGenerator
 
 load_dotenv()
@@ -69,6 +74,7 @@ _session_defaults = {
     "last_run_success": False,
     "last_run_output": "",
     "last_run_result": None,
+    "last_failed_nodeids": [],
     "coverage_analysis": {},
     "page_context": None,
     "selected_model": "llama3.2",
@@ -82,6 +88,9 @@ _session_defaults = {
     # AI-009 Phase B: Journey steps
     "journey_steps": [],
     "journey_expanded": False,
+    # Multi-provider support (AI-XXX)
+    "selected_provider": "ollama",
+    "provider_base_url": "http://localhost:11434",
 }
 
 
@@ -109,26 +118,48 @@ def init_session_state() -> None:
 def display_run_button() -> None:
     """Display the test run button and show structured results."""
 
-    st.markdown("#### 🏃 Run Tests")
     saved_path: str = st.session_state.get("saved_test_path", "")
 
-    run_now = st.button("▶️ Run Now", type="primary", key="run_btn")
+    previous_run_result: RunResult | None = st.session_state.get("last_run_result")
+    failed_nodeids = st.session_state.get("last_failed_nodeids", [])
+    if previous_run_result is not None:
+        derived_failed_nodeids = get_failed_nodeids(previous_run_result.results)
+        if not derived_failed_nodeids and previous_run_result.failed > 0:
+            derived_failed_nodeids = extract_failed_nodeids_from_raw_output(previous_run_result.raw_output)
+        if derived_failed_nodeids:
+            failed_nodeids = derived_failed_nodeids
+            st.session_state.last_failed_nodeids = derived_failed_nodeids
 
-    if run_now and saved_path:
+    controls_placeholder = st.empty()
+    with controls_placeholder.container():
+        st.markdown("#### 🏃 Run Tests")
+        col_all, col_failed = st.columns(2)
+        with col_all:
+            run_now = st.button("▶️ Run Now", type="primary", key="run_btn", use_container_width=True)
+        with col_failed:
+            rerun_failed = st.button(
+                "🔁 Re-run Failed Only",
+                key="rerun_failed_btn",
+                disabled=not failed_nodeids,
+                use_container_width=True,
+                help="Enabled when the previous run has failed tests.",
+            )
+
+    run_command: list[str] | None = None
+    run_label = "tests"
+    if run_now:
+        run_command = build_pytest_run_command(saved_path)
+        run_label = "all tests"
+    elif rerun_failed:
+        run_command = build_pytest_run_command(saved_path, failed_nodeids=failed_nodeids)
+        run_label = "failed tests"
+
+    if run_command is not None and saved_path:
+        controls_placeholder.empty()
         with st.spinner("⏳ Running tests..."):
             try:
                 result = subprocess.run(
-                    [
-                        "pytest",
-                        "-o",
-                        "addopts=",
-                        "--browser=chromium",
-                        "--screenshot=only-on-failure",
-                        saved_path,
-                        "-v",
-                        "--tb=short",
-                        "--maxfail=5",
-                    ],
+                    run_command,
                     capture_output=True,
                     text=True,
                     timeout=300,
@@ -138,13 +169,22 @@ def display_run_button() -> None:
                 st.session_state.last_run_success = result.returncode == 0
                 st.session_state.last_run_output = raw_output
                 st.session_state.last_run_result = parsed_result
+                failed_from_results = get_failed_nodeids(parsed_result.results)
+                st.session_state.last_failed_nodeids = (
+                    failed_from_results if failed_from_results else extract_failed_nodeids_from_raw_output(raw_output)
+                )
+                if rerun_failed and not failed_nodeids:
+                    st.info("No failed tests from the previous run to re-run.")
+                st.rerun()
             except subprocess.TimeoutExpired:
-                st.error("❌ Test run timed out after 5 minutes")
+                st.error(f"❌ {run_label.capitalize()} timed out after 5 minutes")
                 st.session_state.last_run_result = None
+                st.session_state.last_failed_nodeids = []
             except Exception as e:
-                st.error(f"❌ Error running tests: {str(e)}")
+                st.error(f"❌ Error running {run_label}: {str(e)}")
                 st.session_state.last_run_result = None
-    elif run_now and not saved_path:
+                st.session_state.last_failed_nodeids = []
+    elif (run_now or rerun_failed) and not saved_path:
         st.warning("⚠️ No test file saved yet - generate tests first.")
 
     # Display results
@@ -209,21 +249,23 @@ def display_coverage(coverage_analysis: dict[str, Any] | None = None, run_result
     )
 
 
-def _get_ollama_models() -> list[str]:
-    """Return list of locally available Ollama models by running 'ollama list'."""
+def _get_provider_models(provider: str, base_url: str | None = None) -> list[str]:
+    """Return list of available models for the selected provider."""
+    from src.llm_providers import LLMProvider, LMStudioProvider, OllamaProvider
+
     try:
-        result = subprocess.run(
-            ["ollama", "list"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        lines = result.stdout.strip().splitlines()
-        # First line is header ("NAME  ID  SIZE  MODIFIED"), skip it
-        models = [line.split()[0] for line in lines[1:] if line.strip()]
-        return models if models else ["llama3.2"]
+        provider_instance: LLMProvider
+        if provider == "lm-studio":
+            provider_instance = LMStudioProvider(base_url=base_url)
+        else:
+            provider_instance = OllamaProvider(base_url=base_url)
+
+        models = provider_instance.list_models()
+        return models if models else [st.session_state.get("selected_model", "")]
     except Exception:
-        return ["llama3.2"]
+        if provider == "lm-studio":
+            return [st.session_state.get("selected_model", "lmstudio-community/Qwen2.5-7B-Instruct-GGUF")]
+        return [st.session_state.get("selected_model", "llama3.2")]
 
 
 def get_system_prompt() -> str:
@@ -324,17 +366,19 @@ def _render_journey_builder_section() -> None:
     ):
         st.session_state.journey_expanded = True
 
-        st.markdown("""
-**Define the steps the scraper will follow.** Each step is executed in order:
+        # Simplified instructions with nested reference
+        st.markdown("**Define scraper navigation steps.** Add a Capture step where you want page context collected.")
 
-- **Goto**: Navigate directly to a URL
-- **Click**: Click an element by selector or visible text
-- **Fill**: Fill an input field with a value (use `{{username}}` or `{{password}}` placeholders)
-- **Submit**: Click a submit button or press Enter
-- **Capture**: Collect page context at the current page
-- **Wait**: Wait for a selector to appear before continuing
+        with st.expander("ℹ️ Step type reference", expanded=False):
+            st.markdown("""
+**Step types:**
 
-**Important**: Add a **Capture** step wherever you want page context collected.
+- **Goto** — Navigate directly to a URL
+- **Click** — Click an element by selector or visible text
+- **Fill** — Fill an input field with a value (use `{{username}}` or `{{password}}` placeholders)
+- **Submit** — Click a submit button or press Enter
+- **Capture** — Collect page context at the current page
+- **Wait** — Wait for a selector or text to appear
 """)
 
         # Ensure journey_steps exists
@@ -631,48 +675,62 @@ def main() -> None:
     st.title("🤖 AI-Powered Playwright Test Generator")
     st.markdown("---")
 
-    # ── Input: file upload or paste ──────────────────────────────────────────
-    base_url = st.text_input(
-        "Base URL",
-        value="https://",
-        help="Full URL including https:// — used for page scraping and test navigation",
-    )
-
-    # ── AI-009 Phase B: Credential profiles section ────────────────────
-    _render_credential_profiles_section()
-
-    # ── AI-009 Phase B: Journey builder section ───────────────────────
-    _render_journey_builder_section()
-
-    # ── AI-009: Additional page URLs for multi-page scraping ──────────────────
-    with st.expander("➕ Add more pages to scrape (optional)", expanded=False):
-        additional_urls_raw = st.text_area(
-            "Additional page URLs (one per line)",
-            placeholder=(
-                "https://www.example.com/inventory.html\n"
-                "https://www.example.com/cart.html\n"
-                "https://www.example.com/checkout.html"
-            ),
-            height=100,
-            key="additional_urls",
-            help="Enter one URL per line. The scraper will visit each page and collect elements for the LLM.",
-        )
-    additional_urls: list[str] = [
-        u.strip() for u in additional_urls_raw.splitlines() if u.strip().startswith(("http://", "https://"))
-    ]
-
     # ── Sidebar — always visible ──────────────────────────────────────────────
     st.sidebar.header("⚙️ Settings")
-    available_models = _get_ollama_models()
+
+    # LLM Provider selection
+    st.sidebar.subheader("🤖 LLM Provider")
+    provider_options = ["ollama", "lm-studio"]
+    current_provider = st.session_state.get("selected_provider", "ollama")
+    provider_index = provider_options.index(current_provider) if current_provider in provider_options else 0
+    selected_provider = st.sidebar.selectbox(
+        "Select Provider",
+        options=provider_options,
+        index=provider_index,
+        key="selected_provider",
+        help="Choose which LLM server to connect to",
+    )
+
+    # Base URL input based on provider
+    if selected_provider == "ollama":
+        default_base_url = "http://localhost:11434"
+    elif selected_provider == "lm-studio":
+        default_base_url = "http://localhost:1234"
+    else:
+        default_base_url = "http://localhost:11434"
+
+    if st.session_state.get("provider_base_url") in ["http://localhost:11434", "http://localhost:1234"]:
+        st.session_state.provider_base_url = default_base_url
+
+    provider_base_url = st.sidebar.text_input(
+        "Base URL",
+        key="provider_base_url",
+        help=f"Server URL for {selected_provider}",
+    )
+
+    # Model selection
+    available_models = _get_provider_models(selected_provider, provider_base_url)
+    if selected_model := st.session_state.get("selected_model"):
+        selected_index = available_models.index(selected_model) if selected_model in available_models else 0
+    else:
+        selected_index = 0
+
     selected_model = st.sidebar.selectbox(
         "LLM Model",
         options=available_models,
-        index=0,
-        help="Local Ollama models available on your machine. Run 'ollama list' to see all.",
+        index=selected_index,
+        key="selected_model",
+        help="Available models for the selected LLM provider.",
     )
-    st.session_state.selected_model = selected_model
 
     content: str = ""
+    criteria_count = 0
+    user_story_text = ""
+    requirement_model = None
+    error: str | None = None
+    requirement_lines: list[str] = []
+    acceptance_criteria_text: str = ""
+    additional_urls: list[str] = []
 
     def _build_credential_profiles() -> list[CredentialProfile]:
         """Build CredentialProfile objects from session state."""
@@ -701,8 +759,30 @@ def main() -> None:
             return profiles[0].get("label", "") or None
         return None
 
+    def _configure_provider_env() -> None:
+        """Write current UI provider selection into os.environ so LLMClient
+        reads the correct provider. Called immediately before LLMClient is used.
+        """
+        import os
+
+        provider = st.session_state.get("selected_provider", "ollama")
+        os.environ["LLM_PROVIDER"] = provider
+
+        if provider == "ollama":
+            base_url = st.session_state.get("provider_base_url", "http://localhost:11434")
+            os.environ["OLLAMA_BASE_URL"] = base_url
+            model = st.session_state.get("selected_model", "qwen3.5:27b")
+            os.environ["OLLAMA_MODEL"] = model
+
+        elif provider == "lm-studio":
+            base_url = st.session_state.get("provider_base_url", "http://localhost:1234")
+            os.environ["LM_STUDIO_BASE_URL"] = base_url
+            model = st.session_state.get("selected_model", "")
+            os.environ["LM_STUDIO_MODEL"] = model
+
+    # ── User story input: radio + textarea/file uploader ────────────────────
     input_mode = st.radio(
-        "Input mode",
+        "📝 Input mode",
         options=["📄 Upload .md file", "✏️ Paste story"],
         index=0 if st.session_state.get("input_mode") == "upload" else 1,
         horizontal=True,
@@ -740,40 +820,90 @@ def main() -> None:
         elif pasted.strip():
             content = pasted
 
-    if not content:
-        st.info("👆 Upload a feature specification file or paste a user story to begin.")
-        return
+    # ── Parse content if available ───────────────────────────────────────────
+    user_story_text = ""
+    requirement_model = None
+    error = None
 
-    # ── Parse content (shared path for both inputs) ───────────────────────────
-    user_story_text, requirement_model, error = parse_feature_text(content)
+    if content:
+        user_story_text, requirement_model, error = parse_feature_text(content)
 
-    if error:
-        st.error(f"Failed to parse input: {error}")
-        return
+        if error:
+            st.error(f"Failed to parse input: {error}")
+            return
 
-    if not user_story_text:
-        st.error("Couldn't find a user story. Add a '## User Story' heading or just type your story directly.")
-        return
+        if not user_story_text:
+            st.error("Couldn't find a user story. Add a '## User Story' heading or just type your story directly.")
+            return
 
-    if requirement_model is None:
-        st.error("Couldn't derive a requirement model from input.")
-        return
+        if requirement_model is None:
+            st.error("Couldn't derive a requirement model from input.")
+            return
 
-    requirement_lines = requirement_model.lines
-    criteria_count = requirement_model.count
-    acceptance_criteria_text = requirement_model.to_numbered_text()
-    st.session_state.requirements_source = requirement_model.source
+        requirement_lines = requirement_model.lines
+        criteria_count = requirement_model.count
+        acceptance_criteria_text = requirement_model.to_numbered_text()
+        st.session_state.requirements_source = requirement_model.source
 
-    if requirement_model.source != "acceptance_criteria":
-        st.info(
-            "No explicit '## Acceptance Criteria' section found. "
-            "Using derived requirement lines from your pasted story so parsing, "
-            "coverage, and reports stay consistent."
+        if requirement_model.source != "acceptance_criteria":
+            st.info(
+                "No explicit '## Acceptance Criteria' section found. "
+                "Using derived requirement lines from your pasted story so parsing, "
+                "coverage, and reports stay consistent."
+            )
+
+        st.sidebar.markdown(f"**Criteria Count**: {criteria_count}")
+
+    # ── Base URL input ───────────────────────────────────────────────────────
+    base_url = st.text_input(
+        "🌐 Target URL",
+        value="",
+        help="Full URL including https:// — used for page scraping and test navigation",
+    )
+
+    # ── Generate button: always visible, disabled when no content ────────────
+    has_content = bool(user_story_text and criteria_count > 0)
+
+    if has_content:
+        st.info(f"✅ Found {criteria_count} acceptance criteria — ready to generate")
+
+    generate_disabled = not has_content
+
+    generate_clicked = st.button(
+        "🧪 Generate Tests",
+        type="primary",
+        key="generate_btn",
+        disabled=generate_disabled,
+        help="Generate Playwright tests from your story" if generate_disabled else None,
+    )
+
+    # ── Always show advanced expander ────────────────────────────────────────
+    with st.expander("⚙️ Advanced Scraping Options", expanded=False):
+        # AI-009 Phase B: Credential profiles section ─────────
+        _render_credential_profiles_section()
+
+        # AI-009 Phase B: Journey builder section ────────────
+        _render_journey_builder_section()
+
+        # AI-009: Additional page URLs for multi-page scraping
+        additional_urls_raw = st.text_area(
+            "➕ Additional pages to scrape (optional)",
+            placeholder=(
+                "https://www.example.com/inventory.html\n"
+                "https://www.example.com/cart.html\n"
+                "https://www.example.com/checkout.html"
+            ),
+            height=100,
+            key="additional_urls",
+            help="Enter one URL per line. The scraper will visit each page and collect elements for the LLM.",
         )
+        additional_urls = [
+            u.strip() for u in additional_urls_raw.splitlines() if u.strip().startswith(("http://", "https://"))
+        ]
 
-    st.sidebar.markdown(f"**Criteria Count**: {criteria_count}")
+        st.caption("💡 Tip: Add URLs above, or define authentication/journey for dynamic pages.")
 
-    if st.button("Generate Tests", type="primary"):
+    if generate_clicked:
         st.session_state.last_run_result = None
         st.session_state.last_run_success = False
         st.session_state.last_run_output = ""
@@ -907,6 +1037,7 @@ def main() -> None:
 
         with st.spinner("Generating Playwright tests..."):
             try:
+                _configure_provider_env()
                 model = st.session_state.get("selected_model", "llama3.2")
                 generator = TestGenerator(page_url=None, model_name=model)
                 saved_path = generator.generate_and_save(full_prompt)
@@ -970,74 +1101,83 @@ def main() -> None:
                 with st.expander("Full traceback"):
                     st.code(traceback.format_exc(), language="plaintext")
 
-    # ── Always render generated code + coverage from session state ────────────
+    # ── Consolidated Results Display (shows test code + coverage; updates after run) ───
     if st.session_state.get("generated_code") and st.session_state.get("saved_test_path"):
-        tab1, tab2 = st.tabs(["📝 Test Code", "📊 Coverage"])
-        with tab1:
-            st.code(st.session_state.generated_code, language="python")
-            url_slug = re.sub(r"[^\w]", "_", base_url).strip("_")
-            st.download_button(
-                label="⬇️ Download Test File",
-                data=st.session_state.generated_code,
-                file_name=f"test_{url_slug}.py",
-                mime="text/x-python",
-                key="dl_py",
-            )
-        with tab2:
-            display_coverage(
-                coverage_analysis=st.session_state.coverage_analysis,
-                run_result=st.session_state.last_run_result,
-            )
+        with st.expander("📝 View Generated Tests & Coverage", expanded=st.session_state.last_run_result is not None):
+            has_run_results = bool(st.session_state.last_run_result)
+            tab1, tab2 = st.tabs(["📝 Test Code", "📊 Results"])
 
+            with tab1:
+                st.code(st.session_state.generated_code, language="python")
+                url_slug = re.sub(r"[^\w]", "_", base_url).strip("_")
+                st.download_button(
+                    label="⬇️ Download Test File",
+                    data=st.session_state.generated_code,
+                    file_name=f"test_{url_slug}.py",
+                    mime="text/x-python",
+                    key="dl_py_consolidated",
+                    use_container_width=True,
+                )
+
+            with tab2:
+                if has_run_results:
+                    st.success("✅ Test Run Results")
+
+                    # Export buttons integrated at top of results tab
+                    report_dicts = build_report_dicts(
+                        coverage_analysis=st.session_state.coverage_analysis or None,
+                        run_result=st.session_state.last_run_result,
+                    )
+                    html_report = generate_html_report(report_dicts)
+                    local_md = generate_local_report(report_dicts)
+                    jira_md = generate_jira_report(report_dicts)
+
+                    st.markdown("**📥 Export Reports**", unsafe_allow_html=True)
+                    col_a, col_b, col_c = st.columns(3)
+                    with col_a:
+                        st.download_button(
+                            label="📄 local.md",
+                            data=local_md,
+                            file_name="report_local.md",
+                            mime="text/markdown",
+                            key="dl_local_consolidated",
+                            use_container_width=True,
+                        )
+                    with col_b:
+                        st.download_button(
+                            label="🎫 jira.md",
+                            data=jira_md,
+                            file_name="report_jira.md",
+                            mime="text/markdown",
+                            key="dl_jira_consolidated",
+                            use_container_width=True,
+                        )
+                    with col_c:
+                        st.download_button(
+                            label="🌐 standalone.html",
+                            data=html_report,
+                            file_name="test_report.html",
+                            mime="text/html",
+                            key="dl_html_consolidated",
+                            use_container_width=True,
+                        )
+
+                    # Results table below export buttons
+                    display_coverage(
+                        coverage_analysis=st.session_state.coverage_analysis,
+                        run_result=st.session_state.last_run_result,
+                    )
+                else:
+                    # Show only the coverage table before running tests (no redundant message)
+                    display_coverage(
+                        coverage_analysis=st.session_state.coverage_analysis,
+                        run_result=None,
+                    )
+
+        # Run button below consolidated view
     if st.session_state.get("saved_test_path"):
         st.markdown("---")
         display_run_button()
-
-        if st.session_state.last_run_result and st.session_state.coverage_analysis:
-            st.markdown("### Coverage x Run Results")
-            display_coverage(
-                coverage_analysis=st.session_state.coverage_analysis,
-                run_result=st.session_state.last_run_result,
-            )
-
-        if st.session_state.coverage_analysis or st.session_state.last_run_result:
-            report_dicts = build_report_dicts(
-                coverage_analysis=st.session_state.coverage_analysis or None,
-                run_result=st.session_state.last_run_result,
-            )
-            html_report = generate_html_report(report_dicts)
-            local_md = generate_local_report(report_dicts)
-            jira_md = generate_jira_report(report_dicts)
-
-            st.markdown("#### 📥 Download Reports")
-            col_a, col_b, col_c = st.columns(3)
-            with col_a:
-                st.download_button(
-                    label="📄 local.md",
-                    data=local_md,
-                    file_name="report_local.md",
-                    mime="text/markdown",
-                    key="dl_local",
-                    use_container_width=True,
-                )
-            with col_b:
-                st.download_button(
-                    label="🎫 jira.md",
-                    data=jira_md,
-                    file_name="report_jira.md",
-                    mime="text/markdown",
-                    key="dl_jira",
-                    use_container_width=True,
-                )
-            with col_c:
-                st.download_button(
-                    label="🌐 standalone.html",
-                    data=html_report,
-                    file_name="test_report.html",
-                    mime="text/html",
-                    key="dl_html",
-                    use_container_width=True,
-                )
 
 
 if __name__ == "__main__":

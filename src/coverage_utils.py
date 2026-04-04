@@ -37,6 +37,7 @@ class RunTestLike(Protocol):
 
     name: str
     status: str
+    duration: float
 
 
 @dataclass

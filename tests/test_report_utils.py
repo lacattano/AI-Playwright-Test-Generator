@@ -279,5 +279,39 @@ def test_build_report_dicts_maps_run_statuses() -> None:
     assert rows[0]["status"] == "failed"
 
 
+def test_build_report_dicts_maps_parameterized_run_statuses() -> None:
+    """Linked tests should match run names with pytest parameter suffixes."""
+    coverage = {
+        "requirements": [
+            RequirementCoverage(
+                id="TC-001",
+                description="Login works",
+                status="covered",
+                linked_tests=["test_01_login"],
+            )
+        ]
+    }
+    run_result = RunResult(
+        results=[
+            TestResult(
+                name="test_01_login[chromium]",
+                status="passed",
+                duration=5.4,
+                error_message="",
+                file_path="generated_tests/test_demo.py",
+            )
+        ],
+        total=1,
+        passed=1,
+        failed=0,
+        errors=0,
+        duration=5.4,
+        raw_output="",
+    )
+    rows = build_report_dicts(coverage_analysis=coverage, run_result=run_result)
+    assert rows[0]["status"] == "passed"
+    assert rows[0]["duration"] == 5.4
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

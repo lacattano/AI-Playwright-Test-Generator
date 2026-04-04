@@ -22,7 +22,7 @@ class TestGenerator:
         output_dir: Where to save the generated test files.
         page_url: Optional URL to scrape for page context (enables more precise locators in generated tests).
         """
-        self.client = LLMClient(model_name=model_name)
+        self.client = LLMClient(model=model_name)
         self.output_dir = output_dir
         self.model_name = model_name or os.getenv("OLLAMA_MODEL", "qwen3.5:35b")
         self.page_url = page_url

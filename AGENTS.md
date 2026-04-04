@@ -48,12 +48,20 @@ Tests are written to `generated_tests/`, run via pytest, and evidence exported a
 
 | File | Reason |
 |------|--------|
-| `src/llm_client.py` | Working Ollama API client — stable |
 | `src/test_generator.py` | Working test generation pipeline — stable |
 | `main.py` | Working CLI entry point — stable |
 | `.github/workflows/ci.yml` | CI/CD configured and passing |
 
 **Rule:** If you find a bug in a protected file, document it in BACKLOG.md and ask before editing.
+
+## 3a. Protected Directories
+
+| Directory | Reason |
+|-----------|--------|
+| `src/llm_providers/` | Provider implementations — stable after initial implementation |
+| `FEATURE_SPEC_multi_provider_llm.md` | Multi-provider architecture spec — do not modify without explicit instruction |
+
+**Rule:** New protected files created during the multi-provider refactor are automatically covered by this rule.
 
 ---
 

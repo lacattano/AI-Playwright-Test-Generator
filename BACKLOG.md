@@ -331,3 +331,12 @@ the list. Depends on AI-011 and AI-012 being in place first.
   - captured page now accepted only when URL matches the requested target
   - mismatch now retries (bounded) and surfaces explicit failure details.
 - Credential profile active-selection regressions fixed in Streamlit state handling.
+
+### Session 13 (2026-03-31)
+- AI-005 complete: moved remaining coverage display-mapping logic from `streamlit_app.py` into `src/coverage_utils.py` with typed helpers and tests.
+- B-008 effectively addressed: Coverage x Run Results now maps run outcomes through shared coverage utilities and no longer defaults to pending when matches exist.
+- AI-004 (Phase C) progress: added "Re-run Failed Only" in the Run Now flow.
+  - Failed test nodeids are extracted from prior run results and executed directly via pytest.
+  - Command construction extracted to `src/run_utils.py` with unit tests.
+- Multi-page scraper failure tracking improved to typed structured failures (`failed_pages`) with backward compatibility for legacy `failed_urls` consumers.
+- Runtime logic further generalized to site-agnostic behavior (removed site-specific validator/prompt/scraper assumptions).
