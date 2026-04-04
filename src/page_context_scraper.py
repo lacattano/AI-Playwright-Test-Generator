@@ -823,6 +823,154 @@ def _auto_navigate_to_target(page: Page, target_url: str, timeout_ms: int) -> bo
     return False
 
 
+def _extract_navigation_targets_from_story(acceptance_criteria: list[str], base_url: str) -> list[str]:
+    """
+    Analyze acceptance criteria for navigation steps and extract target URLs.
+
+    Looks for patterns like:
+    - "go to cart" → /cart
+    - "navigate to checkout" → /checkout
+    - "view products" → /products
+    - "visit login page" → /login
+
+    Args:
+        acceptance_criteria: List of acceptance criterion strings
+        base_url: Base URL to build absolute URLs from
+
+    Returns:
+        List of target URLs to navigate to
+    """
+    from urllib.parse import urljoin
+
+    navigation_patterns = {
+        "cart": ["/cart", "/shopping-cart", "/basket"],
+        "checkout": ["/checkout", "/check-out", "/check_out", "/payment"],
+        "check out": ["/checkout", "/check-out", "/check_out", "/payment"],  # Handle spaced version
+        "login": ["/login", "/sign-in", "/signin"],
+        "register": ["/register", "/sign-up", "/signup"],
+        "profile": ["/profile", "/account", "/my-account"],
+        "products": ["/products", "/shop", "/store"],
+        "home": ["/", "/home"],
+        "dashboard": ["/dashboard", "/admin"],
+    }
+
+    targets = []
+    seen_targets = set()
+
+    for criterion in acceptance_criteria:
+        criterion_lower = criterion.lower()
+
+        # Look for navigation patterns
+        for keyword, possible_paths in navigation_patterns.items():
+            # Check for various phrasings of this keyword
+            patterns_to_check = [
+                f"go to {keyword}",
+                f"navigate to {keyword}",
+                f"visit {keyword}",
+            ]
+
+            for pattern in patterns_to_check:
+                if pattern in criterion_lower:
+                    for path in possible_paths:
+                        full_url = urljoin(base_url, path)
+                        if full_url not in seen_targets:
+                            targets.append(full_url)
+                            seen_targets.add(full_url)
+                            break  # Take first match for this keyword
+                    break  # Don't check other patterns for this keyword
+
+    return targets
+
+
+def scrape_pages_from_user_story(
+    base_url: str,
+    acceptance_criteria: list[str],
+    timeout_ms: int = 10_000,
+    progress_callback: Callable[..., Any] | None = None,
+) -> tuple[MultiPageContext, ScraperState]:
+    """
+    Automatically scrape pages based on navigation steps found in user story.
+
+    This analyzes the acceptance criteria for navigation patterns like "go to cart"
+    and automatically navigates to those pages using auto_nav journey steps.
+
+    Args:
+        base_url: Starting page URL
+        acceptance_criteria: List of acceptance criteria to analyze for navigation
+        timeout_ms: Navigation timeout in milliseconds
+        progress_callback: Optional progress callback
+
+    Returns:
+        (MultiPageContext with all scraped pages, ScraperState with status)
+    """
+    # Extract navigation targets from user story
+    navigation_targets = _extract_navigation_targets_from_story(acceptance_criteria, base_url)
+
+    if not navigation_targets:
+        # Fall back to single page scraping
+        context, error = scrape_page_context(base_url, timeout_ms)
+        result = MultiPageContext(base_url=base_url, pages=[])
+        state = ScraperState.initial(1)
+
+        if context:
+            result.add_page(context)
+            state.status = "complete"
+            state.completed_urls = [base_url]
+        else:
+            state.status = "error"
+            state.error_message = error or "Failed to scrape base page"
+
+        return result, state
+
+    # Build journey steps: start at base URL, then auto-navigate to each target
+    journey_steps = [
+        JourneyStep(step_type="goto", url=base_url, label="Start at base page"),
+        JourneyStep(step_type="capture", capture_label=base_url, label="Capture base page"),
+    ]
+
+    for target_url in navigation_targets:
+        journey_steps.extend(
+            [
+                JourneyStep(
+                    step_type="auto_nav",
+                    url=target_url,
+                    label=f"Auto-navigate to {target_url}",
+                ),
+                JourneyStep(
+                    step_type="capture",
+                    capture_label=target_url,
+                    label=f"Capture {target_url}",
+                ),
+            ]
+        )
+
+    # Execute the journey
+    journey_result = execute_journey(
+        journey_steps=journey_steps,
+        credential_profiles=[],  # No auth for now
+        active_profile_label=None,
+        timeout_ms=timeout_ms,
+        progress_callback=progress_callback,
+    )
+
+    # Convert journey result to MultiPageContext format
+    result = MultiPageContext(base_url=base_url, pages=journey_result.captured_pages)
+
+    # Build scraper state
+    total_steps = len(journey_steps)
+    state = ScraperState(
+        status="complete" if journey_result.success else "error",
+        current_page_index=total_steps,
+        total_pages=total_steps,
+        progress_percentage=100.0,
+        completed_urls=[page.url for page in journey_result.captured_pages],
+        failed_pages=[],
+        error_message="; ".join(journey_result.failed_steps) if journey_result.failed_steps else None,
+    )
+
+    return result, state
+
+
 def _urls_match_target(current_url: str, target_url: str) -> bool:
     """Return True when the current URL matches the expected target URL path/domain."""
     from urllib.parse import urlparse
@@ -969,6 +1117,36 @@ def _capture_page_context_from_page(page: Page, current_url: str) -> PageContext
                 recommended_locator=_build_recommended_locator(actual_tag, attrs),
             )
         )
+
+    # ── Anchor links ──
+    for handle in page.query_selector_all("a[href]"):
+        if not handle.is_visible():
+            continue
+        visible = handle.inner_text().strip() or None
+        href = handle.get_attribute("href") or None
+
+        attrs = {
+            "element_id": handle.get_attribute("id"),
+            "name": handle.get_attribute("name"),
+            "label": handle.get_attribute("aria-label") or visible,
+            "test_id": handle.get_attribute("data-testid"),
+            "visible_text": visible,
+            "input_type": None,
+            "placeholder": None,
+        }
+        if visible or attrs["element_id"] or attrs["test_id"]:
+            elements.append(
+                PageElement(
+                    tag="a",
+                    role=handle.get_attribute("role") or "link",
+                    label=attrs["label"],
+                    test_id=attrs["test_id"],
+                    element_id=attrs["element_id"],
+                    name=attrs["name"],
+                    visible_text=attrs["visible_text"],
+                    recommended_locator=_build_recommended_locator("a", attrs),
+                )
+            )
 
     # ── Select dropdowns ──
     for handle in page.query_selector_all("select"):
@@ -1688,6 +1866,35 @@ def _extract_context(page: Page, url: str) -> PageContext:
                 recommended_locator=_build_recommended_locator("textarea", attrs),
             )
         )
+
+    # ── Anchor links ─────────────────────────────────────────────────────────
+    for handle in page.query_selector_all("a[href]"):
+        if not handle.is_visible():
+            continue
+        visible = handle.inner_text().strip() or None
+
+        attrs = {
+            "element_id": handle.get_attribute("id"),
+            "name": handle.get_attribute("name"),
+            "label": handle.get_attribute("aria-label") or visible,
+            "test_id": handle.get_attribute("data-testid"),
+            "visible_text": visible,
+            "input_type": None,
+            "placeholder": None,
+        }
+        if visible or attrs["element_id"] or attrs["test_id"]:
+            elements.append(
+                PageElement(
+                    tag="a",
+                    role=handle.get_attribute("role") or "link",
+                    label=attrs["label"],
+                    test_id=attrs["test_id"],
+                    element_id=attrs["element_id"],
+                    name=attrs["name"],
+                    visible_text=attrs["visible_text"],
+                    recommended_locator=_build_recommended_locator("a", attrs),
+                )
+            )
 
     # ── Forms (group inputs by parent <form>) ────────────────────────────────
     forms: list[list[PageElement]] = []
