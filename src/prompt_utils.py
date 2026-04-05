@@ -13,6 +13,7 @@ from typing import Final
 _BASE_PLAYWRIGHT_RULES: Final[str] = """
 BASE REQUIREMENTS:
 - Use Python and Playwright sync API for web automation
+- CRITICAL: Always include these imports at the top: from playwright.sync_api import Page, expect; import re
 - Use pytest format: def test_name(page: Page):
 - Generate descriptive test names that reflect the criterion being tested
 - Include comments explaining each step
@@ -22,17 +23,17 @@ BASE REQUIREMENTS:
 
 
 _PAGE_CONTEXT_RULES: Final[str] = """
-IMPORTANT:
-- Return ONLY the Python code, no markdown formatting, no explanations
-- If PAGE CONTEXT is provided above, use ONLY the locators listed there
-- If PAGE CONTEXT includes concrete page URLs, use those URLs exactly in assertions/navigation
-- Do not invent selectors that are not in the PAGE CONTEXT
-- For assertions after navigation, use `expect(page).to_have_url()` or `expect(page).to_have_title()` instead of making up element IDs like `#react-basics`
-- Prefer positive URL assertions for target pages; avoid weak negative-only checks like `not_to_have_url(...)`
-- Avoid brittle exact base-homepage URL assertions immediately after initial `page.goto(...)`
-- Never use broad locators like `page.locator("button")` or `page.locator("a")`
-- Never suppress failures with `try/except: pass` in generated tests
-- DO NOT skip the last criteria - all {count} criteria must have tests
+CRITICAL PAGE CONTEXT REQUIREMENTS:
+- YOU MUST USE ONLY THE LOCATORS LISTED IN THE PAGE CONTEXT ABOVE
+- NEVER invent, guess, or create locators that are not explicitly listed
+- If a required element is not in the PAGE CONTEXT, use pytest.skip() with a descriptive message instead of omitting the test
+- Do not use generic fallbacks like page.locator("button") or page.get_by_text("anything")
+- For navigation between pages, use direct page.goto("url") instead of clicking links
+- PAGE CONTEXT may contain MULTIPLE PAGES if multi-page scraping was enabled
+- Each page section shows "=== PAGE CONTEXT (scraped from URL) ==="
+- If navigating to a page not in PAGE CONTEXT, either skip the test or use generic title assertions like re.compile("Page") or re.compile("Site")
+- If PAGE CONTEXT is empty or missing, generate only URL navigation tests with generic assertions
+- FAILURE TO USE PROVIDED LOCATORS WILL CAUSE TEST TIMEOUTS AND FAILURES
 """.strip()
 
 
@@ -44,6 +45,47 @@ TEST ISOLATION — CRITICAL:
   navigate to the login page, fill credentials, submit — every time, in every test that needs it
 - Never split a multi-step user flow across test functions expecting sequential execution
 - Treat every test function as if it runs alone in a clean browser with nothing pre-loaded
+""".strip()
+
+_PAGE_TITLE_ASSERTION_RULES: Final[str] = """
+PAGE TITLE ASSERTIONS — CRITICAL:
+- NEVER invent, guess, or assume page titles — this ALWAYS causes test failures
+- ONLY use page title fragments that appear in the PAGE CONTEXT metadata above
+- Look for "Page title : " lines in the PAGE CONTEXT and extract fragments from those actual titles
+- If no PAGE CONTEXT is provided, use generic fragments like re.compile("Home") or re.compile("Page")
+- Page titles in PAGE CONTEXT show actual scraped titles like "Page title : Shopping Cart | Store"
+- Extract meaningful fragments like "Shopping Cart" or "Store" from these actual titles
+- WRONG: expect(page).to_have_title(re.compile("Cart")) — guessing "Cart" when actual title might be "Basket"
+- CORRECT: If PAGE CONTEXT shows "Page title : My Shopping Basket", use re.compile("Shopping Basket")
+- ALWAYS check the PAGE CONTEXT first — never invent titles
+""".strip()
+
+_EVIDENCE_TRACKER_RULES: Final[str] = """
+EVIDENCE TRACKER METHODS — CRITICAL:
+- Use evidence_tracker.navigate(url) instead of page.goto(url)
+  — Records step and takes entry screenshot automatically
+
+- Use evidence_tracker.fill(locator, value, label=...) instead of
+  page.locator(locator).fill(value)
+  — Captures bounding box and value for overlay rendering
+
+- Use evidence_tracker.click(locator, label=...) instead of
+  page.locator(locator).click()
+  — Records click position, drives circle size in annotated view
+
+- Use evidence_tracker.assert_visible(locator, label=...) instead of
+  expect(page.locator(locator)).to_be_visible()
+  — Takes assertion screenshot and records matched text
+
+- Always add @pytest.mark.evidence(condition_ref=..., story_ref=...)
+  decorator to every test function
+  — Links test to condition in evidence bundle and heat map
+
+- Never call page.screenshot() directly
+  — Tracker handles all screenshots; direct calls break sidecar registration
+
+- When using pytest.skip(), include descriptive messages about missing locators or test coverage gaps
+  — This creates evidence records showing what functionality couldn't be tested
 """.strip()
 
 _MAX_PAGE_CONTEXT_CHARS: Final[int] = 8000
@@ -80,16 +122,16 @@ def get_streamlit_system_prompt_template() -> str:
         "ACCEPTANCE CRITERIA (enumerate them explicitly - generate ONE test per criterion):\n"
         "{criteria}\n"
         "(Total: {count} criteria)\n\n"
-        "CRITICAL REQUIREMENT:\n"
-        "- YOU MUST generate a SEPARATE test function for EACH of the {count} acceptance criteria listed above\n"
-        "- Do NOT skip, combine, or omit any criteria\n"
-        "- Each test function should be named test_<criterion_number>_<short_desc> "
-        "(e.g., test_01_can_enter_driver_name)\n"
-        "- The test function names must clearly correspond to the criterion number\n\n"
+        "CRITICAL: Return ONLY Python code. No explanations, no markdown, no analysis.\n"
+        "Start with: from playwright.sync_api import Page, expect\n"
+        "Then: import pytest\n"
+        "Then: def test_01_...(page: Page):\n\n"
         f"{_BASE_PLAYWRIGHT_RULES}\n\n"
         f"{_TEST_ISOLATION_RULES}\n\n"
+        f"{_PAGE_TITLE_ASSERTION_RULES}\n\n"
+        f"{_EVIDENCE_TRACKER_RULES}\n\n"
         f"{_PAGE_CONTEXT_RULES}\n\n"
-        "Generate the Playwright test code now:"
+        "Generate the Python test code now (start directly with imports):"
     )
 
 
@@ -142,16 +184,9 @@ def build_page_context_prompt_block(page_context_block: str) -> str:
         )
 
     return (
-        "### PAGE CONTEXT\n"
-        f"{compact_block}\n"
-        "### END PAGE CONTEXT\n\n"
-        "### APPROVED LOCATORS (from PAGE CONTEXT)\n"
+        "PAGE CONTEXT (use these locators only - do not invent new ones):\n"
+        f"{compact_block}\n\n"
+        "APPROVED LOCATORS:\n"
         f"{approved_block}{truncation_note}\n\n"
-        "### GENERATION INSTRUCTIONS:\n"
-        "- Use the APPROVED LOCATORS exactly as written when they satisfy a step.\n"
-        "- If PAGE CONTEXT exists, never invent new CSS/XPath selectors.\n"
-        "- Use only page URLs that appear in PAGE CONTEXT. Do not invent alternate URL variants.\n"
-        '- Do NOT use broad fallback selectors such as `page.locator("button")`, `page.locator("input")`, or bare tag locators.\n'
-        "- Prefer positive URL assertions for expected destinations instead of negative-only URL checks.\n"
-        "- For navigation assertions, use `expect(page).to_have_url()` or `expect(page).to_have_title()`.\n"
+        "CRITICAL: Use ONLY the locators listed above. If a locator you need is not listed, use pytest.skip('Required element not found in page context').\n"
     )

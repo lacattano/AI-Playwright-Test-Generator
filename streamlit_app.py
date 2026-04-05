@@ -922,10 +922,15 @@ def main() -> None:
 
         page_context_block = ""
 
-        # Decision tree: journey_steps → additional_urls → single page
+        # Decision tree: journey_steps → additional_urls → story-based auto-nav → single page
         journey_steps = st.session_state.get("journey_steps", [])
         credential_profiles = _build_credential_profiles() if st.session_state.get("credentials_enabled", False) else []
         active_profile_label = _get_active_profile_label() if credential_profiles else None
+
+        # Get acceptance criteria for story analysis
+        acceptance_criteria = []
+        if "parsed_spec" in st.session_state and st.session_state.parsed_spec:
+            acceptance_criteria = st.session_state.parsed_spec.criteria_list()
 
         if journey_steps:
             # Execute journey-based scraping (Phase B)
@@ -1011,6 +1016,46 @@ def main() -> None:
                         st.sidebar.warning("⚠️ All pages failed — generating without page context")
                 except Exception as e:
                     st.sidebar.warning(f"⚠️ Multi-page scraper failed: {e} — generating without page context")
+
+        elif acceptance_criteria:
+            # New: Automatic story-based navigation scraping
+            from src.page_context_scraper import scrape_pages_from_user_story
+
+            with st.spinner("🤖 Analyzing user story for navigation patterns..."):
+                try:
+                    multi_ctx, scraper_state = scrape_pages_from_user_story(
+                        base_url=scrape_url,
+                        acceptance_criteria=acceptance_criteria,
+                    )
+
+                    if not multi_ctx.is_empty:
+                        page_context_block = multi_ctx.to_prompt_block()
+                        st.sidebar.success(
+                            f"✅ Auto-navigated to {multi_ctx.success_count} pages "
+                            f"— {multi_ctx.total_elements} elements total"
+                        )
+                        for pg in multi_ctx.pages:
+                            st.sidebar.caption(f"  • {pg.url} → {pg.element_count()} elements")
+                        st.sidebar.info("🔍 Used story analysis to find navigation elements automatically")
+                    else:
+                        st.sidebar.warning("⚠️ No navigation patterns found in story — using single page")
+
+                except Exception as e:
+                    st.sidebar.warning(f"⚠️ Story-based scraper failed: {e} — using single page")
+
+            # Fall back to single page if story-based scraping didn't work
+            if not page_context_block:
+                with st.spinner("🔍 Scraping single page context..."):
+                    try:
+                        ctx, scrape_err = scrape_page_context(scrape_url)
+                        if ctx:
+                            page_context_block = ctx.to_prompt_block()
+                            st.sidebar.success(f"✅ Scraped {ctx.element_count()} elements from page")
+                        else:
+                            st.sidebar.warning(f"⚠️ Page scraping failed: {scrape_err}")
+                    except Exception as e:
+                        st.sidebar.warning(f"⚠️ Single-page scraper failed: {e} — generating without page context")
+
         else:
             # Single-page scraping (original behaviour)
             with st.spinner("🔍 Scraping page context from URL..."):
@@ -1039,8 +1084,16 @@ def main() -> None:
             try:
                 _configure_provider_env()
                 model = st.session_state.get("selected_model", "llama3.2")
-                generator = TestGenerator(page_url=None, model_name=model)
-                saved_path = generator.generate_and_save(full_prompt)
+                generator = TestGenerator(
+                    page_url=None,
+                    model_name=model,
+                    provider_name=selected_provider,
+                    provider_base_url=provider_base_url,
+                )
+                saved_path = generator.generate_and_save(
+                    page_context_prompt,
+                    system_prompt=system_prompt,
+                )
 
                 # Read the generated code from the saved file
                 with open(saved_path, encoding="utf-8") as f:

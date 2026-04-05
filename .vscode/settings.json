@@ -12,6 +12,5 @@
       "source.organizeImports.ruff": "explicit"
     }
   },
-  "mypy-type-checker.enabled": true,
-  "chat.tools.terminal.terminalProfile.windows": {}
+  "mypy-type-checker.enabled": true
 }

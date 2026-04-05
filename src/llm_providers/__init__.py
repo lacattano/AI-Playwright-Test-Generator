@@ -3,7 +3,7 @@ LLM Provider implementations for AI-Playwright-Test-Generator.
 
 This module provides a unified interface for interacting with different LLM backends:
 - Ollama (native API)
-- LM Studio (OpenAI-compatible API)
+- LM Studio (Open/AI-compatible API)
 - Any OpenAI-compatible server
 
 All providers implement the LLMProvider abstract base class.
@@ -42,6 +42,12 @@ class LLMProvider(ABC):
     @abstractmethod
     def provider_name(self) -> str:
         """Returns the name of this provider (e.g., 'ollama', 'lm-studio')."""
+        pass
+
+    @property
+    @abstractmethod
+    def base_url(self) -> str:
+        """Returns the configured provider base URL."""
         pass
 
     @abstractmethod
@@ -85,13 +91,13 @@ class OllamaProvider(LLMProvider):
     DEFAULT_BASE_URL = "http://localhost:11434"
     PROVIDER_NAME = "ollama"
 
-    def __init__(self, base_url: str | None = None) -> None:
+    def __init__(self, base_url: str | None = None, **kwargs: Any) -> None:
         import os
+
+        import httpx
 
         self._base_url = base_url or self.DEFAULT_BASE_URL.rstrip("/")
         timeout_value = int(os.environ.get("OLLAMA_TIMEOUT", "300"))
-
-        import httpx
 
         self._client = httpx.Client(
             base_url=self._base_url,
@@ -145,7 +151,7 @@ class LMStudioProvider(LLMProvider):
     DEFAULT_BASE_URL = "http://localhost:1234"
     PROVIDER_NAME = "lm-studio"
 
-    def __init__(self, base_url: str | None = None):
+    def __init__(self, base_url: str | None = None, **kwargs: Any) -> None:
         self._base_url = base_url or self.DEFAULT_BASE_URL.rstrip("/")
         import httpx
 
@@ -220,6 +226,11 @@ class OpenAIProvider(LLMProvider):
         return self.PROVIDER_NAME
 
     @property
+    def base_url(self) -> str:
+        """Returns the configured OpenAI API base URL."""
+        return self._base_url
+
+    @property
     def api_key(self) -> str | None:
         """Returns the configured OpenAI API key (masked)."""
         if not self._api_key:
@@ -284,7 +295,11 @@ def get_provider(provider_name: str, **kwargs: Any) -> LLMProvider:
     Raises:
         ValueError: If an unknown provider name is provided.
     """
-    providers = {"ollama": OllamaProvider, "lm-studio": LMStudioProvider, "openai": OpenAIProvider}
+    providers: dict[str, type[LLMProvider]] = {
+        "ollama": OllamaProvider,
+        "lm-studio": LMStudioProvider,
+        "openai": OpenAIProvider,
+    }
 
     if provider_name not in providers:
         raise ValueError(f"Unknown provider '{provider_name}'. Available providers: {list(providers.keys())}")

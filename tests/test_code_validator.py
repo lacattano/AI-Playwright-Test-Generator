@@ -267,6 +267,8 @@ def test_a(page):
     def test_accepts_generic_url_assertion(self) -> None:
         """Positive exact URL assertions are valid in generic mode."""
         code = """
+from playwright.sync_api import expect
+
 def test_navigation(page):
     page.goto("https://example.com")
     expect(page).to_have_url("https://example.com/dashboard")
@@ -277,6 +279,8 @@ def test_navigation(page):
     def test_accepts_generic_title_assertion(self) -> None:
         """Title assertion is a valid generic assertion pattern."""
         code = """
+from playwright.sync_api import expect
+
 def test_page_title(page):
     page.goto("https://example.com")
     expect(page).to_have_title("Example Domain")
@@ -284,19 +288,39 @@ def test_page_title(page):
         result = validate_generated_locator_quality(code)
         assert result is None
 
-    def test_accepts_generic_base_url_assertion(self) -> None:
-        """Exact base URL assertions are valid in generic mode."""
+    def test_rejects_root_url_assertion_without_trailing_slash(self) -> None:
+        """Reject root URL assertions missing the canonical trailing slash."""
         code = """
+from playwright.sync_api import expect
+
 def test_login(page):
     page.goto("https://example.com")
     expect(page).to_have_url("https://example.com")
 """
         result = validate_generated_locator_quality(code)
-        assert result is None
+        assert result is not None
+        assert "trailing slash" in result
+
+    def test_rejects_custom_screenshot_markers(self) -> None:
+        """Reject custom screenshot helpers and unknown pytest marks."""
+        code = """
+import pytest
+from playwright.sync_api import Page, expect, screenshot
+
+@pytest.mark.screenshot
+def test_screenshot(page: Page):
+    page.goto("https://example.com/")
+    expect(page).to_have_url("https://example.com/")
+"""
+        result = validate_generated_locator_quality(code)
+        assert result is not None
+        assert "screenshot" in result
 
     def test_rejects_weak_negative_checkout_url_assertion(self) -> None:
         """Negative-only URL assertions should be rejected as weak signal."""
         code = """
+from playwright.sync_api import expect
+
 def test_checkout(page):
     page.goto("https://example.com/cart")
     page.locator("#checkout").click()
@@ -305,3 +329,115 @@ def test_checkout(page):
         result = validate_generated_locator_quality(code)
         assert result is not None
         assert "negative-only URL assertions" in result
+
+    def test_rejects_wait_for_load_state_status_usage(self) -> None:
+        """Reject invalid Playwright API usage that assumes a response object."""
+        code = """
+def test_page_load(page):
+    page.goto("https://example.com")
+    response = page.wait_for_load_state("domcontentloaded", timeout=30000)
+    assert response.status == 200
+"""
+        result = validate_generated_locator_quality(code)
+        assert result is not None
+        assert "wait_for_load_state" in result
+
+    def test_rejects_sync_playwright_fixtureless_usage(self) -> None:
+        """Reject generated code that uses sync_playwright instead of pytest fixtures."""
+        code = """
+from playwright.sync_api import sync_playwright
+
+def test_open_page():
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch()
+        page = browser.new_page()
+        page.goto("https://example.com")
+"""
+        result = validate_generated_locator_quality(code)
+        assert result is not None
+        assert "sync_playwright" in result
+
+    def test_rejects_invalid_url_containing_assertion(self) -> None:
+        """Invalid Playwright `to_have_url_containing` usage should be rejected."""
+        code = """
+def test_page_load(page):
+    page.goto("https://example.com")
+    expect(page).to_have_url_containing("example.com")
+"""
+        result = validate_generated_locator_quality(code)
+        assert result is not None
+        assert "to_have_url_containing" in result
+
+    def test_rejects_invalid_title_containing_assertion(self) -> None:
+        """Invalid Playwright `to_have_title_containing` usage should be rejected."""
+        code = """
+def test_page_title(page):
+    page.goto("https://example.com")
+    expect(page).to_have_title_containing("Example")
+"""
+        result = validate_generated_locator_quality(code)
+        assert result is not None
+        assert "to_have_title_containing" in result
+
+    def test_rejects_expect_page_title_call_usage(self) -> None:
+        """Reject invalid `expect(page.title())` usage."""
+        code = """
+from playwright.sync_api import expect
+
+def test_page_title(page):
+    page.goto("https://example.com")
+    expect(page.title()).to_contain("Example Domain")
+"""
+        result = validate_generated_locator_quality(code)
+        assert result is not None
+        assert "expect(page.title())" in result
+
+    def test_rejects_expect_page_url_call_usage(self) -> None:
+        """Reject invalid `expect(page.url())` usage."""
+        code = """
+from playwright.sync_api import expect
+
+def test_page_url(page):
+    page.goto("https://example.com")
+    expect(page.url()).to_be("https://example.com")
+"""
+        result = validate_generated_locator_quality(code)
+        assert result is not None
+        assert "expect(page.url())" in result
+
+    def test_rejects_re_compile_without_import(self) -> None:
+        """Reject regex assertions that omit the import re statement."""
+        code = """
+from playwright.sync_api import expect
+
+def test_page_title(page):
+    page.goto("https://example.com")
+    expect(page).to_have_title(re.compile(r"^Example Domain$"))
+"""
+        result = validate_generated_locator_quality(code)
+        assert result is not None
+        assert "re.compile" in result
+
+    def test_rejects_expect_without_import(self) -> None:
+        """Generated code must import expect from playwright.sync_api when it is used."""
+        code = """
+def test_page_title(page):
+    page.goto("https://example.com")
+    expect(page).to_have_title("Example Domain")
+"""
+        result = validate_generated_locator_quality(code)
+        assert result is not None
+        assert "does not import `expect`" in result
+
+    def test_rejects_to_be_connected_usage(self) -> None:
+        """Reject invalid expect(page).to_be_connected() usage."""
+        code = """
+from playwright.sync_api import expect
+
+def test_page_load(page):
+    page.goto("https://example.com")
+    expect(page).to_be_connected()
+"""
+        result = validate_generated_locator_quality(code)
+        assert result is not None
+        assert "to_be_connected" in result

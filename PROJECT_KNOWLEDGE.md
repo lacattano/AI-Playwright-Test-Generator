@@ -293,7 +293,377 @@ After generation, `streamlit_app.py`:
 
 ---
 
-## Recurring Bugs to Watch For (Cline / LLM Loop Patterns)
+## Evidence Traceability Pipeline — Overview
+
+The tool now produces a fully traceable chain from business requirement to
+proof of execution. The pipeline has two new stages before test generation
+and three new output formats after it.
+
+**New pipeline (full):**
+
+```
+Input → Spec Analysis → Tester Review + Sign-off
+      → Test Generation (with EvidenceTracker) → pytest Run
+      → .evidence.json sidecar written
+      → Evidence Bundle (annotated screenshots + Gantt + sign-off doc)
+      → Heat Map (cross-story, cross-sprint aggregation)
+```
+
+**Three new deliverables per story:**
+1. Annotated screenshot — page screenshot with numbered interaction circles
+2. Gantt timeline — per-condition execution bars with duration and status
+3. Heat map — cross-story confidence grid for stakeholder review
+
+**The stakeholder question this answers:** "Here is what I tested, why I
+tested it, and proof that it passed." Each condition in the evidence bundle
+carries the exact spec clause that drove it, the test that verified it, and
+the screenshot at the moment of assertion.
+
+---
+
+### `src/spec_analyzer.py` — Spec Analysis Stage
+
+Analyses raw input (functional spec, user story, or free-form text) and
+derives explicit test conditions before any test is generated.
+
+**Four analysis steps:**
+1. Extract business rules (logic statements, thresholds, constraints)
+2. Map boundary values (for each numeric rule: at-limit, below-limit, above-limit)
+3. Surface ambiguities (spec gaps where behaviour is undefined)
+4. Derive test conditions (one condition per scenario)
+
+**Condition types:**
+
+| Type | Description | Example (BC01) |
+|------|-------------|----------------|
+| `happy_path` | Valid input, all rules pass | 30×20×15cm bag accepted |
+| `boundary` | Value at exactly the rule limit | 55cm longest side accepted |
+| `negative` | Invalid input, error path shown | Non-numeric input rejected |
+| `exploratory` | Tester-added, not spec-derivable | 999×999×999cm extreme values |
+| `regression` | Parameterised, cross-boundary | Volume at 0.05m³ all dim combos |
+| `ambiguity` | Spec gap requiring PO clarification | Longest-side ordering undefined |
+
+**Key output:** `list[TestCondition]` — each condition has:
+- `id` (e.g. `BC01.02`)
+- `type` (from table above)
+- `text` (plain English description)
+- `expected` (plain English expected result)
+- `source` (spec clause that drove this condition)
+- `flagged` (bool — true for ambiguities)
+- `src` (`ai` | `manual` | `automation`)
+
+**Assumptions are test conditions.** The spec assumption
+"all flights carry the same restrictions" generates a test: does the
+calculator behave identically regardless of any ticket-type context on the
+page? Assumptions are not just noted — they are verified.
+
+---
+
+### `src/test_plan.py` — Living Test Plan
+
+The test plan is the tester's document. AI conditions are a starting point.
+
+**TestPlan dataclass:**
+```python
+@dataclass
+class TestPlan:
+    story_ref: str
+    sprint: str
+    conditions: list[TestCondition]
+    confirmed_ids: set[str]
+    sign_off_notes: str
+    tester_name: str
+    sign_off_date: str | None
+```
+
+**Tester capabilities on the plan:**
+- Edit any condition's text, expected result, or source reference
+- Remove conditions considered out of scope
+- Add manual tests (with step lists for a colleague to execute)
+- Add automation tests (with locator intent)
+- Flag conditions needing PO clarification
+- Confirm each condition individually
+- Sign off when all confirmed — this unlocks test generation
+
+**Sign-off is not optional.** The generate button is disabled until
+`len(confirmed_ids) == len(conditions)`. This makes the tester's review
+active and documented, not passive.
+
+**Session state keys:**
+- `test_plan` — current TestPlan object (serialised to JSON for persistence)
+- `plan_confirmed` — bool, True when sign-off complete
+
+---
+
+### `src/evidence_tracker.py` — Evidence Tracker
+
+Wraps Playwright Page interactions to produce structured evidence records.
+
+**Public API (these are the only methods generated tests should use):**
+
+```python
+tracker.navigate(url: str) -> None
+tracker.fill(locator: str, value: str, label: str = "") -> None
+tracker.click(locator: str, label: str = "") -> None
+tracker.assert_visible(locator: str, label: str = "") -> None
+tracker.write(status: str = "passed") -> str  # returns sidecar path
+```
+
+**What each method does internally:**
+- Executes the Playwright action
+- Calls `locator.bounding_box()` to get element coordinates
+- Converts to `viewport_pct` (percentage of viewport width/height)
+- Reads existing sidecar to increment `run_count` without overwriting history
+- Appends a Step record to internal list
+- `navigate()` and `assert_visible()` also call `page.screenshot()`
+
+**Coordinate storage:**
+```python
+# Both stored — overlay uses pct, aggregation uses bbox
+bbox:         { x, y, width, height, center_x, center_y }  # absolute pixels
+viewport_pct: { x, y }  # center_x / viewport_width * 100
+```
+
+**Run history accumulation:**
+- Before writing, reads existing sidecar if present
+- Increments `total_runs`, `passed_runs` or `failed_runs`
+- Per-step `run_count` incremented by reading previous value for that step index
+- `first_run` preserved from original sidecar, never overwritten
+
+**conftest.py fixture pattern:**
+```python
+@pytest.fixture
+def evidence_tracker(page, request):
+    marker = request.node.get_closest_marker("evidence")
+    tracker = EvidenceTracker(
+        page=page,
+        test_name=request.node.name,
+        condition_ref=marker.kwargs.get("condition_ref", "unknown"),
+        story_ref=marker.kwargs.get("story_ref", "unknown"),
+    )
+    yield tracker
+    status = "passed" if request.node.rep_call.passed else "failed"
+    tracker.write(status=status)
+```
+
+**Protected files note:** `src/llm_client.py` and `src/test_generator.py`
+are untouched. The tracker is injected via the conftest fixture pattern,
+not wired into the generator directly.
+
+---
+
+### Sidecar Schema — `.evidence.json`
+
+Schema version `1.0`. One file per test function. Written to `evidence/`
+directory alongside screenshots. File named `{test_name}.evidence.json`.
+
+**Top-level keys:**
+
+```
+schema_version  string   "1.0"
+test            object   Test identity and run result
+page            object   URL, viewport, screenshot paths
+run_history     object   Cumulative pass/fail counts across all runs
+steps           array    Ordered interaction records
+```
+
+**Step record:**
+
+```
+step            int      Execution order (1-based)
+type            string   navigate | fill | click | assertion | wait
+label           string   Plain English description (shown in evidence UI)
+locator         string   Playwright locator expression, null for navigate
+value           string   Filled value or navigated URL, null for clicks/asserts
+screenshot      string   Path to screenshot taken at this step, null if none
+
+element:
+  tag           string   HTML tag name
+  element_id    string   id attribute, null if absent
+  test_id       string   data-testid attribute, null if absent
+  bbox:         object   x, y, width, height, center_x, center_y (pixels)
+  viewport_pct: object   x, y (percentage of viewport — used by overlay)
+
+result:
+  status        string   passed | failed | skipped
+  elapsed_ms    int      Wall-clock time for this step
+  run_count     int      Cumulative times this step has been executed
+  matched_text  string   Text matched by assertion, null for non-assertions
+  error         string   Error message if status is failed, null otherwise
+```
+
+**Consumer notes:**
+- Evidence bundle overlay renderer reads `steps[*].element.viewport_pct`
+- Heat map aggregator reads `test.status`, `test.condition_ref`,
+  `test.story_ref`, `test.sprint`, `run_history.total_runs`
+- Gantt timeline reads `test.duration_s`, `test.status`, `test.condition_ref`
+- Screenshot annotator reads `steps[*].type` for circle colour encoding
+
+---
+
+### `src/prompt_utils.py` — Evidence Tracker Rules (Addition)
+
+New constant `_EVIDENCE_TRACKER_RULES` to be added alongside existing
+`_BASE_PLAYWRIGHT_RULES`, `_PAGE_CONTEXT_RULES`, `_TEST_ISOLATION_RULES`.
+
+**Six mandatory LLM rules:**
+
+```
+1. Use evidence_tracker.navigate(url) instead of page.goto(url)
+   — Records step and takes entry screenshot automatically
+
+2. Use evidence_tracker.fill(locator, value, label=...) instead of
+   page.locator(locator).fill(value)
+   — Captures bounding box and value for overlay rendering
+
+3. Use evidence_tracker.click(locator, label=...) instead of
+   page.locator(locator).click()
+   — Records click position, drives circle size in annotated view
+
+4. Use evidence_tracker.assert_visible(locator, label=...) instead of
+   expect(page.locator(locator)).to_be_visible()
+   — Takes assertion screenshot and records matched text
+
+5. Always add @pytest.mark.evidence(condition_ref=..., story_ref=...)
+   decorator to every test function
+   — Links test to condition in evidence bundle and heat map
+
+6. Never call page.screenshot() directly
+   — Tracker handles all screenshots; direct calls break sidecar registration
+```
+
+**Generated test function signature (always):**
+```python
+@pytest.mark.evidence(condition_ref="BC01.02", story_ref="BC01")
+def test_02_boundary_longest_side_55cm(
+    page: Page,
+    evidence_tracker: EvidenceTracker,
+) -> None:
+```
+
+---
+
+### Annotated Screenshot — Overlay Rendering
+
+The overlay is SVG rendered at display time over the screenshot image.
+It is not baked into the PNG — the annotation layer stays interactive.
+
+**Circle rendering formula:**
+```
+base_radius = 14 + min(run_count * 0.7, 20)
+cx = (viewport_pct.x / 100) * container_width
+cy = (viewport_pct.y / 100) * container_height
+```
+
+**Colour encoding (fixed — documented in legend):**
+
+| Interaction type | Colour | Hex |
+|-----------------|--------|-----|
+| navigate | Pink-red | `#993556` |
+| fill | Teal | `#0F6E56` |
+| click | Blue | `#185FA5` |
+| assertion | Amber | `#854F0B` |
+
+**Three view modes:**
+- `annotated` — numbered circles with type colours (product owner default)
+- `heatmap` — density rings, colour by type, opacity by run count (QA lead)
+- `clean` — raw screenshot, no overlay (baseline comparison)
+
+**Hover behaviour:** Hovering a circle highlights the corresponding step in
+the timeline below. Hovering a timeline row highlights the circle on the
+screenshot. Both use the same `hoveredId` state variable.
+
+**Implementation note:** The overlay must re-render on container resize.
+Use a `ResizeObserver` or `window.addEventListener('resize', renderOverlay)`.
+
+---
+
+### Evidence Bundle — Structure
+
+The complete per-story stakeholder document contains:
+
+1. **Header** — story reference, sprint, tester name, date, overall status
+2. **Open questions panel** — red, top of page, blocks sign-off if present
+3. **Coverage summary** — 4-cell metric row (total, passed, pending, open)
+4. **Coverage breakdown bars** — by source (AI / manual / automation)
+5. **Gantt timeline** — execution timeline for all conditions
+6. **Condition index** — scannable table with ref, badge, status per condition
+7. **Full detail section** — per-condition: spec clause, expected result,
+   evidence note, annotated screenshot, step timeline, manual steps if present
+8. **Tester sign-off** — name, date, notes field, overall status statement
+
+**Export formats:**
+- Interactive HTML (in-tool view, fully interactive)
+- Static HTML (for Jira attachment, no JS dependencies)
+- PDF (via browser print — generate static HTML then instruct browser to print)
+
+---
+
+### Heat Map — Confidence Levels
+
+The heat map shows coverage confidence, not just pass/fail.
+
+**Four confidence levels (colours are fixed):**
+
+| Level | Colour | Hex | Meaning |
+|-------|--------|-----|----------|
+| Tester confirmed | Dark teal | `#1D9E75` | Tests passed AND tester signed off |
+| AI covered, unreviewed | Light teal | `#9FE1CB` | Tests passed, no tester review yet |
+| Partial / pending | Amber | `#FAC775` | Some conditions still pending |
+| Gap / open question | Red | `#F09595` | Ambiguity or missing coverage |
+| Not in scope | `var(--color-background-secondary)` | — | Deliberate exclusion |
+
+**The distinction between confirmed and unreviewed is the most important
+design decision.** Both mean tests passed. Only confirmed means a human
+reviewed the conditions and agreed they are the right tests to run. This
+is the visual answer to "how much of this did a human actually verify."
+
+**Three grouping dimensions:**
+- By condition type — tester view (where are the boundary gaps?)
+- By sprint — scrum master view (is coverage improving sprint-over-sprint?)
+- By source — product owner view (how much was AI vs manual vs automation?)
+
+**Data source:** Aggregated from all `.evidence.json` sidecars in `evidence/`
+directory plus manual condition records from `test_plan` session state.
+No external database required.
+
+---
+
+### File Structure — New Files
+
+```
+src/
+├── spec_analyzer.py       # AI-016 — derives test conditions from spec input
+├── test_plan.py           # AI-017 — TestPlan dataclass, condition CRUD
+├── evidence_tracker.py    # AI-018 — wraps Playwright, writes sidecar JSON
+├── gantt_utils.py         # AI-021 — Gantt data preparation and grouping
+└── heatmap_utils.py       # AI-022 — cross-sidecar aggregation for heat map
+
+tests/
+├── test_spec_analyzer.py
+├── test_test_plan.py
+├── test_evidence_tracker.py
+├── test_gantt_utils.py
+└── test_heatmap_utils.py
+
+generated_tests/
+└── conftest.py            # AI-018 — evidence_tracker fixture for all tests
+
+evidence/                  # Runtime output — gitignored
+├── bc01_02_entry_143201.png
+├── bc01_02_assert_143201.png
+└── test_02_boundary_longest_side_55cm.evidence.json
+```
+
+**`.gitignore` addition required:**
+```
+evidence/
+!evidence/.gitkeep
+```
+
+---
+
+### Recurring Bugs to Watch For (Cline / LLM Loop Patterns)
 
 These have appeared multiple times — check for them after any AI-assisted edit:
 
@@ -410,6 +780,14 @@ Ollama is already running — this is fine, ignore the error.
 | B-007 | Duplicate error panels in run results UI | Logged |
 | B-008 | Run Status column never populates in results table | Logged |
 | B-009 | No `ast.parse()` validation before saving generated test files — truncated LLM output saved silently | Logged — planned `src/code_validator.py` |
+| E-001 | Tracker not injected | `evidence_tracker` fixture not found | Check `generated_tests/conftest.py` exists and is importable |
+| E-002 | Sidecar not written on failure | Failed tests produce no `.evidence.json` | Verify `pytest_runtest_makereport` hook is in conftest |
+| E-003 | Circles all same size | `run_count` always 1 | Tracker not reading existing sidecar before writing — check `_load_run_count()` |
+| E-004 | Overlay coordinates wrong | Circles appear offset from elements | Using `bbox` pixels not `viewport_pct` — check renderer uses percentage coordinates |
+| E-005 | LLM uses `page.goto()` | No navigation step in sidecar | System prompt missing `_EVIDENCE_TRACKER_RULES` — check `prompt_utils.py` |
+| E-006 | Marker not on test function | `condition_ref` is "unknown" in sidecar | LLM not adding `@pytest.mark.evidence` — enforce in prompt rule 5 |
+| E-007 | Heat map all same shade | Confirmed vs unreviewed not distinguished | Sign-off flag not being read from `test_plan` session state |
+| E-008 | Evidence dir not created | `FileNotFoundError` on first run | `EvidenceTracker.__init__` must call `evidence_dir.mkdir(exist_ok=True)` |
 
 ### Backlog (Next — after B-009)
 
@@ -449,9 +827,20 @@ Ollama is already running — this is fine, ignore the error.
 - **2026-03-16:** Session 9 — BREAK-1/BREAK-2 identified and fixed; `src/pytest_output_parser.py` committed; session state wipe removed from `display_run_button()`
 - **2026-03-29:** Docs refresh — PROJECT_KNOWLEDGE.md updated: stale breaks cleared, models table updated (qwen3.5:27b recommended), `src/prompt_utils.py` added to file structure, B-006 through B-009 logged, AI-009 phases documented, streamlit_app.py explicitly noted as non-protected
 - **2026-03-29:** AI-002 complete — `src/user_story_parser.py` and `tests/test_user_story_parser.py` committed, all tests passing. AI-003 done manually. B-009 next.
+- **2026-04-04:** Design session — Evidence traceability pipeline
+  - AI-016 through AI-022 designed and specced
+  - Sidecar schema v1.0 defined
+  - EvidenceTracker public API finalised
+  - Annotated screenshot overlay rendering designed
+  - Gantt timeline three-grouping-mode design finalised
+  - Heat map four-confidence-level design finalised
+  - Living test plan (tester-editable conditions) designed
+  - Spec analysis stage (boundary derivation, ambiguity surfacing) designed
+  - Evidence tracker feature block integrated into BACKLOG.md
+  - Evidence pipeline implementation details integrated into PROJECT_KNOWLEDGE.md
 
 ---
 
-*Last Updated: 2026-03-29*
-*Project Status: CI green — AI-002 and AI-003 complete*
-*Current Phase: B-009 → AI-009*
+*Last Updated: 2026-04-04*
+*Project Status: CI green — AI-002 and AI-003 complete; Evidence tracker designed*
+*Next Phase: AI-018 → AI-022 implementation in sequence*

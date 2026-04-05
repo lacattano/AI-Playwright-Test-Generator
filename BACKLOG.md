@@ -74,6 +74,281 @@ in session state, auth redirect detection, SSO/MFA/CAPTCHA explicit errors.
 **Spec:** `FEATURE_SPEC_AI009_phase_b.md`
 **Priority:** Highest — core value driver
 
+## Feature Context — Evidence Tracker (AI-016 through AI-022)
+
+The evidence tracker feature transforms test outputs from raw pass/fail results
+into a fully traceable stakeholder artefact. The chain runs:
+
+  Spec analysis → Tester review → Condition sign-off
+  → Annotated screenshot evidence → Gantt timeline
+  → Heat map → Evidence bundle export
+
+This was designed to answer the question a tester needs to answer in a sprint
+review: "here is what I tested, why I tested it, and proof that it passed."
+
+Three new outputs are produced per test run:
+
+1. `.evidence.json` sidecar — structured interaction record with bounding boxes
+2. Annotated screenshot — page screenshot with numbered interaction circles
+3. Evidence bundle — per-story document combining all three sources (AI, manual,
+   automation) with Gantt timeline and sign-off section
+
+---
+
+### AI-016 — Spec Analysis Stage
+
+**What:** A new pipeline stage that runs before test generation. Reads the
+user's input (spec, user story, or acceptance criteria), extracts business rules,
+maps boundary values, surfaces assumptions and ambiguities, and derives explicit
+test conditions. Produces a structured list of conditions the tester must review
+and confirm before generation begins.
+
+**Why:** Documents like functional specs (e.g. Appius baggage calculator format)
+contain business rules in prose, not acceptance criteria bullets. The boundary
+values, assumptions, and ambiguities must be derived by analysis, not just parsed.
+A tester who has confirmed ten conditions has a very different accountability
+position than one who ran a tool.
+
+**New file:** `src/spec_analyzer.py`
+**New file:** `tests/test_spec_analyzer.py`
+**Touches:** `streamlit_app.py` — new stage before "Generate Tests" button
+**Touches:** `src/prompt_utils.py` — system prompt updated to receive derived
+conditions rather than raw acceptance criteria text
+
+**Design session completed:** 2026-04-04
+**Spec:** See PROJECT_KNOWLEDGE.md — Spec Analysis Stage section
+
+**Condition types derived:**
+- `happy_path` — valid input within all rules
+- `boundary` — value at exactly the rule limit (and ±1 unit either side)
+- `negative` — invalid input, error path
+- `exploratory` — tester-added, not derivable from spec alone
+- `regression` — parameterised automation, cross-boundary combinations
+- `ambiguity` — spec gap requiring product owner clarification before sign-off
+
+**Priority:** High — prerequisite for AI-017 and AI-018
+
+---
+
+### AI-017 — Living Test Plan UI
+
+**What:** After spec analysis, the tester sees a full editable test plan showing
+all derived conditions. They can edit any condition's text, expected result, or
+source reference. They can remove conditions they consider out of scope. They can
+add manual tests (with step lists) and automation tests (with locator intent).
+They can flag conditions that need product owner clarification. Only when all
+conditions are confirmed does the sign-off button unlock, triggering generation.
+
+**Why:** The tester must be the author of the test plan. AI-derived conditions
+are a starting point, not a final product. The edit, remove, and add capabilities
+make the tester's judgement visible and documented, not invisible.
+
+**New file:** None — UI only, lives in `streamlit_app.py` as a new display
+function `display_test_plan()`
+**Note:** All testable helpers must be extracted to `src/` per AGENTS.md §3.
+Any filtering, sorting, or condition-manipulation logic goes in
+`src/test_plan.py`, not directly in `streamlit_app.py`.
+
+**New file:** `src/test_plan.py` — TestPlan dataclass, condition CRUD, flag logic
+**New file:** `tests/test_test_plan.py`
+
+**Session state keys added:**
+- `test_plan` — list of TestCondition objects (see PROJECT_KNOWLEDGE.md)
+- `plan_confirmed` — bool, True when all conditions checked off
+
+**Priority:** High — depends on AI-016
+
+---
+
+### AI-018 — Evidence Tracker Module
+
+**What:** `src/evidence_tracker.py` — wraps Playwright Page interactions to
+record element bounding boxes, interaction types, step sequence, and run history.
+Writes a `.evidence.json` sidecar file alongside screenshots after each test run.
+Accumulates run counts across multiple runs without overwriting history.
+
+**Why:** The annotated screenshot overlay (AI-020) and the Gantt timeline
+(AI-021) both read from the sidecar. Without structured interaction data, the
+overlay cannot know where to draw circles or how large to make them.
+
+**New file:** `src/evidence_tracker.py`
+**New file:** `tests/test_evidence_tracker.py`
+**New file:** `generated_tests/conftest.py` — pytest fixture wiring tracker
+into every generated test automatically
+
+**Key design decisions (do not change without design session):**
+
+- Tracker wraps the Page object, it does not patch it. Existing tests continue
+  to work unchanged.
+- Coordinates stored as both absolute pixels (`bbox`) AND viewport percentage
+  (`viewport_pct`). The overlay renderer uses percentages so it is
+  resolution-independent.
+- `run_count` is per-step, not per-test. Elements exercised by multiple test
+  paths accumulate independently.
+- `write()` is called in pytest teardown via the conftest fixture, not inside
+  the test function. This ensures sidecar is written even when a test fails.
+- `pytest_runtest_makereport` hook in conftest makes pass/fail status available
+  to the teardown fixture.
+
+**Sidecar schema version:** `1.0` (see PROJECT_KNOWLEDGE.md for full schema)
+
+**Priority:** High — blocks AI-019, AI-020, AI-021
+
+---
+
+### AI-019 — Prompt Update: EvidenceTracker Methods
+
+**What:** Update `src/prompt_utils.py` to add a new rule block
+`_EVIDENCE_TRACKER_RULES` instructing the LLM to use `evidence_tracker.*`
+wrapper methods instead of `page.*` directly. Add the `@pytest.mark.evidence`
+decorator to the generated test template. Update
+`get_streamlit_system_prompt_template()` to include the new rule block.
+
+**Why:** If the LLM generates `page.goto()` instead of
+`evidence_tracker.navigate()`, no sidecar is produced and the annotated
+screenshot feature produces nothing. The rule must be in the system prompt,
+not just documentation.
+
+**Touches:** `src/prompt_utils.py` only
+**New constant:** `_EVIDENCE_TRACKER_RULES`
+
+**Six mandatory rules for the LLM (see PROJECT_KNOWLEDGE.md for full text):**
+1. Use `evidence_tracker.navigate()` not `page.goto()`
+2. Use `evidence_tracker.fill()` not `page.locator().fill()`
+3. Use `evidence_tracker.click()` not `page.locator().click()`
+4. Use `evidence_tracker.assert_visible()` not `expect().to_be_visible()`
+5. Always add `@pytest.mark.evidence(condition_ref=..., story_ref=...)`
+6. Never call `page.screenshot()` directly
+
+**Note:** `src/llm_client.py` is PROTECTED — do not modify it.
+The rule block goes in `prompt_utils.py` and is injected via the existing
+template system.
+
+**Priority:** High — depends on AI-018, blocks usable generated tests
+
+---
+
+### AI-020 — Annotated Screenshot Evidence View
+
+**What:** Extend `src/report_utils.py` to read `.evidence.json` sidecars when
+building the HTML evidence bundle. Render an SVG overlay on top of each
+screenshot showing: numbered circles at interaction coordinates, circle size
+encoding cumulative run count, colour encoding interaction type
+(navigate/fill/click/assertion), sequence numbers in execution order.
+
+**Three view modes:**
+- `annotated` — numbered circles with type colours (default, for product owner)
+- `heatmap` — density rings showing interaction frequency across all runs
+  (for QA lead)
+- `clean` — raw screenshot with no overlay (baseline for comparison)
+
+**Hover interaction:** Hovering a circle highlights the corresponding step in
+the step timeline below the screenshot. Hovering a timeline row highlights the
+circle on the screenshot.
+
+**Why:** A screenshot is a frozen moment. An annotated screenshot is a test map
+a product owner can read without understanding any code.
+
+**Colour encoding (do not change without updating legend):**
+- Navigate: `#993556` (pink-red)
+- Fill: `#0F6E56` (teal)
+- Click: `#185FA5` (blue)
+- Assertion: `#854F0B` (amber)
+
+**Circle size formula:** `base_radius = 14 + min(run_count * 0.7, 20)`
+
+**Coordinate rendering:** Uses `viewport_pct` not absolute `bbox` pixels.
+Multiply by container dimensions at render time.
+
+**Touches:** `src/report_utils.py` — new function `generate_annotated_screenshot()`
+**Touches:** `streamlit_app.py` — evidence bundle tab shows annotated screenshots
+
+**Priority:** Medium — depends on AI-018
+
+---
+
+### AI-021 — Gantt Timeline in Evidence Bundle
+
+**What:** A per-story, per-sprint test execution timeline showing each condition
+as a horizontal bar sized by duration. Bars labelled with the condition ref
+(BC01.02) and plain-English description, not the test function name. Dashed bars
+for conditions not yet run (pending/open question). Colour encodes status.
+
+**Three grouping modes:**
+- By condition type (tester view)
+- By sprint (scrum master view)
+- By source — AI/manual/automation (product owner view)
+
+**Stakeholder summary row** below the chart: fastest test, slowest test,
+automation coverage percentage as plain English sentences.
+
+**Clicking a bar** expands a detail card showing the spec reference, expected
+result, evidence note, and step sequence. The card sits below the chart, not
+as a modal overlay.
+
+**Why:** Duration differences between tests are meaningful — a boundary rejection
+taking 4× longer than a happy path is a conversation starter with developers. The
+Gantt makes this visible without the tester having to articulate it.
+
+**New file:** `src/gantt_utils.py` — data preparation, grouping logic
+**New file:** `tests/test_gantt_utils.py`
+**Touches:** `streamlit_app.py` — new tab in evidence bundle section
+**Reads from:** `.evidence.json` sidecar `test.duration_s` and `test.status`
+
+**Priority:** Medium — depends on AI-018
+
+---
+
+### AI-022 — Coverage Heat Map
+
+**What:** A cross-story, cross-sprint grid showing coverage confidence for each
+story × condition type combination (or story × sprint, or story × source,
+switchable). Each cell coloured by confidence level. Clicking a cell expands
+condition detail. Sprint-over-sprint trend bars below the grid.
+
+**Four confidence levels (colours are fixed — do not change):**
+- Tester confirmed: `#1D9E75` (dark teal) — tests passed AND tester signed off
+- AI covered, unreviewed: `#9FE1CB` (light teal) — tests passed, no tester review
+- Partial / pending: `#FAC775` (amber) — some conditions still pending
+- Gap / open question: `#F09595` (red) — ambiguity or missing coverage
+- Not in scope: `var(--color-background-secondary)` — deliberate exclusion
+
+**The tonal distinction between confirmed and unreviewed is the most important
+design decision in the heat map.** Both mean tests passed. Only confirmed means
+a human reviewed the conditions and agreed they are the right tests. This is
+the visual answer to the question "how much of this did a human actually verify."
+
+**Persistence:** Heat map data aggregated from all `.evidence.json` sidecars in
+the evidence directory, plus manual test plan records from session state. No
+external database — local file aggregation only.
+
+**New file:** `src/heatmap_utils.py` — aggregation across sidecars
+**New file:** `tests/test_heatmap_utils.py`
+**Touches:** `streamlit_app.py` — new top-level analytics tab
+
+**Priority:** Medium — depends on AI-016, AI-018, AI-021
+
+---
+
+## Implementation Sequence (AI-016 through AI-022)
+
+Do these in order. Each item is a single Cline session.
+
+| Order | ID | Session scope |
+|-------|----|---------------|
+| 1 | AI-018 | `src/evidence_tracker.py` + tests + conftest only |
+| 2 | AI-019 | `src/prompt_utils.py` rule block only |
+| 3 | AI-016 | `src/spec_analyzer.py` + tests — no UI yet |
+| 4 | AI-017 | `src/test_plan.py` + tests + `display_test_plan()` in UI |
+| 5 | AI-020 | `generate_annotated_screenshot()` in report_utils + UI tab |
+| 6 | AI-021 | `src/gantt_utils.py` + tests + UI tab |
+| 7 | AI-022 | `src/heatmap_utils.py` + tests + UI tab |
+
+**Rule:** Each session must end with `bash fix.sh` → `pytest tests/ -v` → green
+before committing. Do not combine sessions.
+
+---
+
 ### ✅ AI-002 — User Story Parser Module (COMPLETE)
 **What:** Move criteria extraction into `src/user_story_parser.py` with proper
 format support: Gherkin, Jira AC bullets, numbered, free-form

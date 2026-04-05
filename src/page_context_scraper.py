@@ -1131,6 +1131,7 @@ def _capture_page_context_from_page(page: Page, current_url: str) -> PageContext
             "label": handle.get_attribute("aria-label") or visible,
             "test_id": handle.get_attribute("data-testid"),
             "visible_text": visible,
+            "href": href,
             "input_type": None,
             "placeholder": None,
         }

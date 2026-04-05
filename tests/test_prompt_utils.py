@@ -25,8 +25,10 @@ def test_streamlit_prompt_mentions_page_context_rules() -> None:
     """Template should include PAGE CONTEXT locator constraints."""
     template = get_streamlit_system_prompt_template()
     assert "PAGE CONTEXT" in template
-    assert "locators listed there" in template or "do not invent selectors" in template
-    assert "URLs" in template or "page URLs" in template
+    assert (
+        "LOCATORS LISTED IN THE PAGE CONTEXT ABOVE" in template or "NEVER invent, guess, or create locators" in template
+    )
+    assert "page.goto" in template or "navigation" in template
 
 
 def test_streamlit_prompt_enforces_test_isolation() -> None:

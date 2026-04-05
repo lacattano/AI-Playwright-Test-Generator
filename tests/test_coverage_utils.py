@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from src.coverage_utils import (
     CoverageDisplayRow,
     RequirementCoverage,
@@ -23,10 +25,8 @@ def test_extract_test_names_finds_pytest_functions() -> None:
     code = """
 def helper():
     pass
-
 def test_01_login(page):
     pass
-
 def test_something_else():
     pass
 """
@@ -42,7 +42,6 @@ def test_build_requirement_coverages_uses_numbered_matching() -> None:
     code = """
 def test_01_first_thing(page):
     pass
-
 def test_2_second_thing(page):
     pass
 """
@@ -136,10 +135,13 @@ def test_build_coverage_display_rows_without_run_results() -> None:
 def test_build_coverage_display_rows_with_run_results() -> None:
     """Display rows should include pass/fail icons for linked test run statuses."""
 
+    @dataclass
     class _RunResult:
-        def __init__(self, name: str, status: str) -> None:
-            self.name = name
-            self.status = status
+        """Mock result that satisfies RunTestLike Protocol."""
+
+        name: str
+        status: str
+        duration: float = 0.1
 
     requirements = [
         RequirementCoverage(
@@ -156,11 +158,92 @@ def test_build_coverage_display_rows_with_run_results() -> None:
         ),
     ]
     run_results = [
-        _RunResult(name="test_01_can_log_in[chromium]", status="passed"),
-        _RunResult(name="test_02_can_checkout[chromium]", status="failed"),
+        _RunResult(name="test_01_can_log_in[chromium]", status="passed", duration=1.2),
+        _RunResult(name="test_02_can_checkout[chromium]", status="failed", duration=3.4),
     ]
 
     rows = build_coverage_display_rows(requirements, run_results=run_results)
     assert len(rows) == 2
     assert rows[0].result == "✅"
     assert rows[1].result == "❌"
+
+
+def test_build_coverage_analysis_output_structure() -> None:
+    """Verify the structure of build_coverage_analysis output."""
+    criteria = ["Criterion 1", "Criterion 2"]
+    code = """
+def test_01_criterion_1(page):
+    pass
+def test_02_criterion_2(page):
+    pass
+"""
+    analysis = build_coverage_analysis(criteria, code)
+    assert isinstance(analysis, dict)
+    assert "requirements" in analysis
+    reqs = analysis["requirements"]
+    assert len(reqs) == 2
+    assert all(isinstance(r, RequirementCoverage) for r in reqs)
+
+
+def test_build_coverage_display_rows_handles_no_run_results() -> None:
+    """Verify build_coverage_display_rows handles None run_results."""
+    requirements = [
+        RequirementCoverage(id="TC-001", description="desc", status="covered", linked_tests=["test_1"]),
+    ]
+    rows = build_coverage_display_rows(requirements, run_results=None)
+    assert len(rows) == 1
+    assert rows[0].result == ""
+
+
+def test_build_coverage_display_rows_handles_empty_run_results() -> None:
+    """Verify build_coverage_display_rows handles empty list of run results."""
+    requirements = [
+        RequirementCoverage(id="TC-001", description="desc", status="covered", linked_tests=["test_1"]),
+    ]
+    rows = build_coverage_display_rows(requirements, run_results=[])
+    assert len(rows) == 1
+    assert rows[0].result == ""
+
+
+def test_build_coverage_display_rows_handles_missing_run_results() -> None:
+    """Verify missing run results (None) show empty result column."""
+    requirements = [
+        RequirementCoverage(id="TC-001", description="desc", status="covered", linked_tests=["test_1"]),
+    ]
+    rows = build_coverage_display_rows(requirements, run_results=None)
+    assert len(rows) == 1
+    assert rows[0].result == ""
+
+
+def test_build_requirement_coverages_empty_code() -> None:
+    """Verify empty code results in not_covered status."""
+    criteria = ["Criterion 1"]
+    requirements = build_requirement_coverages(criteria, "")
+    assert len(requirements) == 1
+    assert requirements[0].status == "not_covered"
+
+
+def test_build_requirement_coverages_no_matching_tests() -> None:
+    """Verify no matching tests results in not_covered status."""
+    criteria = ["Criterion 1"]
+    code = """
+def test_unrelated(page):
+    pass
+"""
+    requirements = build_requirement_coverages(criteria, code)
+    assert len(requirements) == 1
+    assert requirements[0].status == "not_covered"
+
+
+def test_build_coverage_display_rows_truncates_linked_tests() -> None:
+    """Verify linked tests are truncated with ellipsis when more than 3."""
+    requirements = [
+        RequirementCoverage(
+            id="TC-001",
+            description="desc",
+            status="covered",
+            linked_tests=["test_1", "test_2", "test_3", "test_4"],
+        ),
+    ]
+    rows = build_coverage_display_rows(requirements)
+    assert rows[0].tests == "test_1; test_2; test_3..."

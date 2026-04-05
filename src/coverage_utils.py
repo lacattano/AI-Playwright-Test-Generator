@@ -61,64 +61,31 @@ class CoverageDisplayRow:
         }
 
 
-_TEST_DEF_PATTERN = re.compile(r"^def (test_\w+)", re.MULTILINE)
+_TEST_DEF_pattern = re.compile(r"^def (test_\w+)", re.MULTILINE)
 
 
 def extract_test_names(generated_code: str) -> list[str]:
-    """Extract pytest-style test function names from Python source code.
-
-    Args:
-        generated_code: Python code containing test function definitions.
-
-    Returns:
-        List of test function names (e.g. ``['test_01_login', 'test_02_logout']``).
-    """
+    """Extract pytest-style test function names from Python source code."""
     if not generated_code:
         return []
-    return _TEST_DEF_PATTERN.findall(generated_code)
+    return _TEST_DEF_pattern.findall(generated_code)
 
 
 def build_requirement_coverages(
     acceptance_criteria_lines: list[str],
     generated_code: str,
 ) -> list[RequirementCoverage]:
-    """Build RequirementCoverage objects from criteria and generated test code.
-
-    The behaviour mirrors the original inline implementation in ``streamlit_app``
-    so existing coverage semantics are preserved:
-
-    - Requirements are numbered sequentially as ``TC-001``, ``TC-002``, ...
-    - Primary matching uses the test name pattern ``test_<num>_`` where
-      ``<num>`` is either zero-padded (``01``) or plain (``1``).
-    - Fallback matching uses word overlap between the criterion text and the
-      test function name (at least two shared words).
-    - Status is ``\"covered\"`` when one or more linked tests are found,
-      otherwise ``\"not_covered\"``.
-
-    Args:
-        acceptance_criteria_lines: Ordered list of acceptance criteria text.
-        generated_code: Generated Python test code.
-
-    Returns:
-        List of RequirementCoverage instances in the same order as the criteria.
-    """
+    """Build RequirementCoverage objects from criteria and generated test code."""
     test_names = extract_test_names(generated_code)
     requirements: list[RequirementCoverage] = []
-
     for index, criterion in enumerate(acceptance_criteria_lines, start=1):
-        req_id = f"TC-{index:03}"
-        num_str = f"{index:02}"
-
-        # Primary: explicit numbering in test name
+        req_id = f"TC-{index:03d}"
+        num_str = f"{index:02d}"
         linked = [name for name in test_names if f"test_{num_str}_" in name or f"test_{index}_" in name]
-
-        # Fallback: word overlap between criterion and test name
         if not linked:
             words = {word for word in criterion.lower().split() if word}
             linked = [name for name in test_names if len(words & set(name.lower().split("_"))) >= 2]
-
         status = "covered" if linked else "not_covered"
-
         requirements.append(
             RequirementCoverage(
                 id=req_id,
@@ -127,7 +94,6 @@ def build_requirement_coverages(
                 linked_tests=linked,
             )
         )
-
     return requirements
 
 
@@ -154,6 +120,8 @@ def _result_icon(status: str) -> str:
         return "✅"
     if status == "failed":
         return "❌"
+    if status == "skipped":
+        return "⏭️"
     return "⏳"
 
 
@@ -161,41 +129,50 @@ def build_coverage_display_rows(
     requirements: list[RequirementCoverage],
     run_results: Sequence[RunTestLike] | None = None,
 ) -> list[CoverageDisplayRow]:
-    """Build UI display rows for coverage table, optionally enriched with run results."""
-    run_map: dict[str, RunTestLike] = {}
+    """Build display-ready rows from RequirementCoverage objects.
+
+    Args:
+        requirements: List of RequirementCoverage objects.
+        run_results: Optional sequence of run result objects satisfying RunTestLike.
+
+    Returns:
+        List of CoverageDisplayRow objects ready for UI table rendering.
+    """
+    # Build a lookup from base test name to run status.
+    # pytest appends [chromium] etc., so we strip the bracket suffix for matching.
+    run_map: dict[str, str] = {}
     if run_results:
-        run_map = {result.name: result for result in run_results}
+        for tr in run_results:
+            base_name = tr.name.split("[")[0]
+            run_map[base_name] = tr.status
 
     rows: list[CoverageDisplayRow] = []
-    for requirement in requirements:
-        result_cell = ""
-        if run_map:
-            icons: list[str] = []
-            for test_name in requirement.linked_tests:
-                matched = next(
-                    (
-                        result
-                        for result_name, result in run_map.items()
-                        if result_name == test_name or result_name.startswith(test_name)
-                    ),
-                    None,
-                )
-                if matched is None:
-                    icons.append("⏳")
-                else:
-                    icons.append(_result_icon(matched.status))
-            result_cell = ", ".join(icons)
+    for req in requirements:
+        status_emoji = _status_emoji(req.status)
+        id_cell = f"{status_emoji} {req.id}"
+        status_label = req.status.upper()
 
-        linked_tests_text = "; ".join(requirement.linked_tests[:3])
-        if len(requirement.linked_tests) > 3:
-            linked_tests_text += "..."
+        tests_cell = "; ".join(req.linked_tests[:3])
+        if len(req.linked_tests) > 3:
+            tests_cell += "..."
+
+        # Build result cell from run_results if available.
+        result_cell = ""
+        if run_results is not None and req.linked_tests:
+            icons: list[str] = []
+            for test_name in req.linked_tests:
+                base_name = test_name.split("[")[0]
+                if base_name in run_map:
+                    icons.append(_result_icon(run_map[base_name]))
+                # If linked test not found in run map, emit nothing (test not yet run).
+            result_cell = ", ".join(icons)
 
         rows.append(
             CoverageDisplayRow(
-                id_cell=f"{_status_emoji(requirement.status)} {requirement.id}",
-                requirement=requirement.description,
-                status=requirement.status.upper(),
-                tests=linked_tests_text,
+                id_cell=id_cell,
+                requirement=req.description,
+                status=status_label,
+                tests=tests_cell,
                 result=result_cell,
             )
         )

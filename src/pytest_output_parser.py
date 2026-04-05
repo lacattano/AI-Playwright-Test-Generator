@@ -18,9 +18,11 @@ from dataclasses import dataclass, field
 
 _PASSED_RE = re.compile(r"(\S+\.py)::(\S+)\s+PASSED")
 _FAILED_RE = re.compile(r"(\S+\.py)::(\S+)\s+FAILED")
+_SKIPPED_RE = re.compile(r"(\S+\.py)::(\S+)\s+SKIPPED")
 _SUMMARY_LINE_RE = re.compile(r" in ([\d.]+)s\s*=")
 _PASSED_COUNT_RE = re.compile(r"(\d+) passed")
 _FAILED_COUNT_RE = re.compile(r"(\d+) failed")
+_SKIPPED_COUNT_RE = re.compile(r"(\d+) skipped")
 _ERROR_RE = re.compile(r"FAILED .+::(\S+) - (.+)")
 _FAILURES_HEADER_RE = re.compile(r"^=+ FAILURES =+")
 _FAILURE_NAME_RE = re.compile(r"^_+ (\w+) _+")
@@ -36,7 +38,7 @@ class TestResult:
     """Result for a single test function."""
 
     name: str
-    status: str  # "passed" | "failed" | "error"
+    status: str  # "passed" | "failed" | "skipped" | "error"
     duration: float  # seconds; 0.0 when not available
     error_message: str  # empty string when passed
     file_path: str  # relative path, e.g. "generated_tests/test_foo.py"
@@ -50,6 +52,7 @@ class RunResult:
     total: int = 0
     passed: int = 0
     failed: int = 0
+    skipped: int = 0
     errors: int = 0
     duration: float = 0.0
     raw_output: str = ""
@@ -141,6 +144,18 @@ def parse_pytest_output(raw: str) -> RunResult:
             )
             continue
 
+        skipped_match = _SKIPPED_RE.search(line)
+        if skipped_match:
+            file_path, name = skipped_match.group(1), skipped_match.group(2)
+            results_by_name[name] = TestResult(
+                name=name,
+                status="skipped",
+                duration=0.0,
+                error_message="",
+                file_path=file_path,
+            )
+            continue
+
         # ── Inline error: "FAILED path::name - ErrorType: detail" ─────────
         error_match = _ERROR_RE.search(line)
         if error_match:
@@ -153,11 +168,14 @@ def parse_pytest_output(raw: str) -> RunResult:
         if _SUMMARY_LINE_RE.search(line):
             passed_m = _PASSED_COUNT_RE.search(line)
             failed_m = _FAILED_COUNT_RE.search(line)
+            skipped_m = _SKIPPED_COUNT_RE.search(line)
             dur_m = re.search(r"in ([\d.]+)s", line)
             if passed_m:
                 run.passed = int(passed_m.group(1))
             if failed_m:
                 run.failed = int(failed_m.group(1))
+            if skipped_m:
+                run.skipped = int(skipped_m.group(1))
             if dur_m:
                 run.duration = float(dur_m.group(1))
 

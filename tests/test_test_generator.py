@@ -83,6 +83,13 @@ class TestOutputDirectoryHandling:
 class TestGenerateAndSaveMethod:
     """Tests for the generate_and_save method."""
 
+    def _build_generator_with_mock_client(self, tmpdir: str, mock_code: str) -> TestGenerator:
+        generator = TestGenerator(output_dir=tmpdir)
+        generator.client = MagicMock()
+        generator.client.generate_test = MagicMock(return_value=mock_code)
+        generator.client.normalise_code_newlines = MagicMock(side_effect=lambda code: code)
+        return generator
+
     def test_returns_file_path_on_success(self, monkeypatch: Any) -> None:
         """Verify method returns file path on successful generation."""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -91,9 +98,7 @@ class TestGenerateAndSaveMethod:
 def test_example(page: Page):
     pass"""
 
-            generator = TestGenerator(output_dir=tmpdir)
-            generator.client = MagicMock()
-            generator.client.generate_test = MagicMock(return_value=mock_code)
+            generator = self._build_generator_with_mock_client(tmpdir, mock_code)
             result = generator.generate_and_save("test request")
             assert result is not None
             assert ".py" in result
@@ -107,9 +112,7 @@ def test_example(page: Page):
 def test_example(page: Page):
     pass"""
 
-            generator = TestGenerator(output_dir=tmpdir)
-            generator.client = MagicMock()
-            generator.client.generate_test = MagicMock(return_value=mock_code)
+            generator = self._build_generator_with_mock_client(tmpdir, mock_code)
             result = generator.generate_and_save("test request!")
             assert "test_request" in result or "test_request_" in result
 
@@ -121,9 +124,7 @@ def test_example(page: Page):
 def test_example(page: Page):
     pass"""
 
-            generator = TestGenerator(output_dir=tmpdir)
-            generator.client = MagicMock()
-            generator.client.generate_test = MagicMock(return_value=mock_code)
+            generator = self._build_generator_with_mock_client(tmpdir, mock_code)
             result = generator.generate_and_save("test request")
             # Filename should contain timestamp format
             assert any(char.isdigit() for char in result)
@@ -136,9 +137,7 @@ def test_example(page: Page):
 def test_example(page: Page):
     pass"""
 
-            generator = TestGenerator(output_dir=tmpdir)
-            generator.client = MagicMock()
-            generator.client.generate_test = MagicMock(return_value=mock_code)
+            generator = self._build_generator_with_mock_client(tmpdir, mock_code)
             result = generator.generate_and_save("test request")
 
             assert os.path.exists(result)
@@ -149,20 +148,36 @@ def test_example(page: Page):
     def test_empty_code_raises_exception(self, monkeypatch: Any) -> None:
         """Verify empty code raises exception."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            generator = TestGenerator(output_dir=tmpdir)
-            generator.client = MagicMock()
-            generator.client.generate_test = MagicMock(return_value="   ")
+            generator = self._build_generator_with_mock_client(tmpdir, "   ")
 
             with pytest.raises(Exception) as exc_info:
                 generator.generate_and_save("test request")
             assert "empty" in str(exc_info.value).lower()
 
+    def test_generated_invalid_code_raises_validation_error(self, monkeypatch: Any) -> None:
+        """Verify invalid generated code is rejected before saving."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            invalid_code = """
+from playwright.sync_api import expect
+
+def test_page_title(page):
+    page.goto("https://example.com")
+    expect(page.title()).to_contain("Example Domain")
+"""
+            generator = self._build_generator_with_mock_client(tmpdir, invalid_code)
+
+            with pytest.raises(ValueError) as exc_info:
+                generator.generate_and_save("test request")
+
+            assert (
+                "locator quality" in str(exc_info.value).lower()
+                or "generated code failed" in str(exc_info.value).lower()
+            )
+
     def test_whitespace_only_code_strips(self, monkeypatch: Any) -> None:
         """Verify whitespace-only code raises exception."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            generator = TestGenerator(output_dir=tmpdir)
-            generator.client = MagicMock()
-            generator.client.generate_test = MagicMock(return_value="   \n\n   ")
+            generator = self._build_generator_with_mock_client(tmpdir, "   \n\n   ")
 
             # Should raise exception for whitespace-only
             with pytest.raises(Exception, match="empty"):
@@ -176,9 +191,7 @@ def test_example(page: Page):
 def test_example(page: Page):
     pass"""
 
-            generator = TestGenerator(output_dir=tmpdir)
-            generator.client = MagicMock()
-            generator.client.generate_test = MagicMock(return_value=mock_code)
+            generator = self._build_generator_with_mock_client(tmpdir, mock_code)
             long_request = "a" * 100
             result = generator.generate_and_save(long_request)
 
@@ -193,9 +206,7 @@ def test_example(page: Page):
 def test_example(page: Page):
     pass"""
 
-            generator = TestGenerator(output_dir=tmpdir)
-            generator.client = MagicMock()
-            generator.client.generate_test = MagicMock(return_value=mock_code)
+            generator = self._build_generator_with_mock_client(tmpdir, mock_code)
             result = generator.generate_and_save("test!@#$%request")
 
             # Should not contain special chars that would break filenames
@@ -209,6 +220,7 @@ def test_example(page: Page):
         with tempfile.TemporaryDirectory() as tmpdir:
             mock_client = MagicMock()
             mock_client.generate_test = MagicMock(side_effect=Exception("API error"))
+            mock_client.normalise_code_newlines = MagicMock(side_effect=lambda code: code)
             mock_client_class.return_value = mock_client
 
             generator = TestGenerator(output_dir=tmpdir)
@@ -226,6 +238,7 @@ class TestFileNameGeneration:
             generator = TestGenerator(output_dir=tmpdir)
             generator.client = MagicMock()
             generator.client.generate_test = MagicMock(return_value="code")
+            generator.client.normalise_code_newlines = MagicMock(side_effect=lambda code: code)
             result = generator.generate_and_save("any request")
             assert result.startswith(tmpdir)
             assert "test_" in os.path.basename(result)
@@ -236,6 +249,7 @@ class TestFileNameGeneration:
             generator = TestGenerator(output_dir=tmpdir)
             generator.client = MagicMock()
             generator.client.generate_test = MagicMock(return_value="code")
+            generator.client.normalise_code_newlines = MagicMock(side_effect=lambda code: code)
             result = generator.generate_and_save("test request!@#")
 
             filename = os.path.basename(result)
@@ -249,6 +263,7 @@ class TestFileNameGeneration:
             generator = TestGenerator(output_dir=tmpdir)
             generator.client = MagicMock()
             generator.client.generate_test = MagicMock(return_value="code")
+            generator.client.normalise_code_newlines = MagicMock(side_effect=lambda code: code)
             result = generator.generate_and_save("test")
             assert result.endswith(".py")
 

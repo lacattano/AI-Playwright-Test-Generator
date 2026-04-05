@@ -99,6 +99,66 @@ def validate_generated_locator_quality(code: str) -> str | None:
             "Use specific id/test-id/role+name locators from page context."
         )
 
+    if re.search(r"page\.wait_for_load_state\([^\)]*\)\s*\.\s*status", code) or re.search(
+        r"response\s*=\s*page\.wait_for_load_state", code
+    ):
+        return (
+            "Error: Generated code assumes `page.wait_for_load_state()` returns a response object. "
+            "In Playwright Python sync API, `page.wait_for_load_state()` returns None, so use "
+            "`page.goto(url)` and `expect(page).to_have_url(...)` or `expect(page).to_have_title(...)` instead."
+        )
+
+    if re.search(r"to_have_url_containing\(", code) or re.search(r"to_have_title_containing\(", code):
+        return (
+            "Error: Generated code uses invalid Playwright assertion methods like `to_have_url_containing()` or "
+            "`to_have_title_containing()`. Use `expect(page).to_have_url(...)` or `expect(page).to_have_title(...)` instead."
+        )
+
+    if re.search(r"expect\(", code) and not re.search(r"from playwright\.sync_api import .*expect", code):
+        return (
+            "Error: Generated code uses `expect(...)` but does not import `expect` from `playwright.sync_api`. "
+            "Add `from playwright.sync_api import Page, expect` at the top of the file."
+        )
+    if re.search(r"expect\(\s*page\.title\(\s*\)\s*\)", code) or re.search(r"expect\(\s*page\.url\(\s*\)\s*\)", code):
+        return (
+            "Error: Generated code uses `expect(page.title())` or `expect(page.url())`, which is not valid in Playwright Python. "
+            "Use `assert page.title() == ...` or `expect(page).to_have_title(...)`, and `expect(page).to_have_url(...)` instead."
+        )
+    if re.search(r"expect\(page\)\.to_be_connected\(", code):
+        return (
+            "Error: Generated code uses `expect(page).to_be_connected()`, which is not a valid Playwright Python API. "
+            "Use `page.goto(url)` and explicit URL/title assertions instead."
+        )
+
+    if re.search(r"re\.compile\(", code) and not re.search(r"import\s+re", code):
+        return (
+            "Error: Generated code uses `re.compile(...)` but does not import the `re` module. "
+            "Add `import re` at the top of the file or avoid regex assertions for known exact values."
+        )
+
+    if re.search(r"from playwright\.sync_api import screenshot", code) or re.search(r"pytest\.mark\.screenshot", code):
+        return (
+            "Error: Generated code uses custom screenshot helpers or marks (`screenshot`, `pytest.mark.screenshot`). "
+            "Use standard Playwright sync assertions instead and avoid project-specific markers."
+        )
+
+    goto_urls = re.findall(r'page\.goto\(["\'](https?://[^"\']+)["\']\)', code)
+    url_asserts = re.findall(r'expect\(page\)\.to_have_url\(["\'](https?://[^"\']+)["\']\)', code)
+    for goto_url in goto_urls:
+        for assert_url in url_asserts:
+            if goto_url == assert_url and not goto_url.endswith("/"):
+                return (
+                    "Error: Generated code asserts a root URL without the trailing slash. "
+                    "Use the canonical URL with `/` at the end for root domain navigation, e.g. "
+                    '`expect(page).to_have_url("https://example.com/")`, or use a regex with an optional slash.'
+                )
+
+    if re.search(r"sync_playwright\(", code) or re.search(r"with\s+sync_playwright\(", code):
+        return (
+            "Error: Generated code uses `sync_playwright()`. Use pytest-playwright fixture style instead, "
+            "with `page` passed into the test, and do not launch the browser manually."
+        )
+
     if re.search(r"except\s*:\s*[\r\n]+\s*pass\b", code):
         return (
             "Error: Generated code suppresses errors via `except: pass`, which hides test failures. "
