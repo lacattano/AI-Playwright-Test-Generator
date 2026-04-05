@@ -78,3 +78,11 @@ cline-mcp-memory-bank/
 memory-bank/
 
 package-lock.json
+
+# ── Cline/AI agent scratch files ─────────────────────────────────────────────
+tmp_*.py
+FIX_SUMMARY.md
+ISSUES_FOUND_AND_FIXES.md
+*.png
+!assets/*.png
+!screenshots/.gitkeep
