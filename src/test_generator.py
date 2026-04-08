@@ -1,166 +1,93 @@
-"""
-Test Generator module - generates Playwright test scripts.
-"""
+"""Test generation helpers for both direct generation and skeleton-first pipeline flows."""
+
+from __future__ import annotations
 
 import os
-from datetime import datetime
+from pathlib import Path
+from typing import Any
 
-from src.code_validator import (
-    validate_generated_locator_quality,
-    validate_python_syntax,
-    validate_test_function,
-)
+from src.code_validator import validate_generated_locator_quality, validate_python_syntax
+from src.file_utils import save_generated_test, slugify
 from src.llm_client import LLMClient
-from src.page_context_scraper import PageContext, scrape_page_context
+from src.prompt_utils import build_page_context_prompt_block, get_skeleton_prompt_template
 
 
 class TestGenerator:
+    """Generate test code and persist it when needed."""
+
     def __init__(
         self,
-        model_name: str | None = None,
+        client: LLMClient | None = None,
+        *,
         output_dir: str = "generated_tests",
-        page_url: str | None = None,
+        model_name: str | None = None,
         provider_name: str | None = None,
-        provider_base_url: str | None = None,
-        provider_api_key: str | None = None,
+        base_url: str | None = None,
+        api_key: str | None = None,
     ) -> None:
-        """
-        Initialize the generator.
-        model_name: Model to use (defaults to env model or provider-specific default).
-        output_dir: Where to save the generated test files.
-        page_url: Optional URL to scrape for page context.
-        provider_name: LLM provider to use ('ollama', 'lm-studio', or 'openai').
-        provider_base_url: Optional service URL for the provider.
-        provider_api_key: Optional API key for OpenAI.
-        """
-        self.client = LLMClient(
-            provider_name=provider_name,
-            model=model_name,
-            base_url=provider_base_url,
-            api_key=provider_api_key,
-        )
         self.output_dir = output_dir
-        self.model_name = model_name or os.getenv("OLLAMA_MODEL", "qwen3.5:35b")
-        self.page_url = page_url
+        self.model_name = model_name or os.environ.get("OLLAMA_MODEL", "qwen3.5:35b")
         self.generated_files: list[str] = []
-
-        # Create output directory if it doesn't exist and validate it's writable
+        self.client = client or LLMClient(
+            provider_name=provider_name,
+            model=self.model_name,
+            base_url=base_url,
+            api_key=api_key,
+        )
         self._ensure_output_dir()
 
     def _ensure_output_dir(self) -> None:
-        """Create output directory if needed and validate write permissions."""
-        try:
-            if not os.path.exists(self.output_dir):
-                os.makedirs(self.output_dir)
-                print(f"📁 Created output directory: {self.output_dir}")
+        Path(self.output_dir).mkdir(parents=True, exist_ok=True)
 
-            # Test write permissions
-            test_file = os.path.join(self.output_dir, ".write_test")
-            with open(test_file, "w") as f:
-                f.write("test")
-            os.remove(test_file)
-
-        except PermissionError as e:
-            raise PermissionError(f"Write permission denied for output directory: {self.output_dir}") from e
-        except OSError as e:
-            raise OSError(f"Failed to create/access output directory {self.output_dir}: {e}") from e
-
-    def generate_and_save(
+    async def generate_skeleton(
         self,
-        user_request: str,
-        page_context: PageContext | None = None,
-        system_prompt: str | None = None,
+        user_story: str,
+        criteria: str,
+        target_urls: list[str] | None = None,
     ) -> str:
-        """
-        1. Scrapes page context if page_url is provided.
-        2. Injects page context into the prompt if scraping succeeds.
-        3. Generates code using the AI.
-        4. Saves it to a file named based on the timestamp.
-        5. Returns the filename.
-        """
-        try:
-            # Step 1: Scrape page context if URL is provided
-            if self.page_url:
-                print(f"Scraping page context from: {self.page_url}")
-                page_context, scrape_error = scrape_page_context(self.page_url)
-
-                if page_context:
-                    print(f"Successfully scraped {page_context.element_count()} interactive elements")
-                    print(f"   Page title: {page_context.page_title}")
-                    if page_context.h1_text:
-                        print(f"   H1: {page_context.h1_text}")
-                elif scrape_error:
-                    print(f"Warning: Failed to scrape page: {scrape_error}")
-                    print("   Continuing without page context...")
-                    page_context = None
-
-            # Step 2: Inject page context into user request if available
-            if page_context:
-                prompt_with_context = self._build_context_injected_prompt(user_request, page_context)
-            else:
-                prompt_with_context = user_request
-
-            # Step 3: Contact AI model
-            print("Contacting AI model...")
-            code = self.client.generate_test(
-                prompt_with_context,
-                system_prompt=system_prompt,
-            )
-
-            if not code.strip():
-                raise Exception("The AI returned empty code.")
-
-            # Clean the code of leading/trailing whitespace and validate it.
-            code = code.strip()
-            code = self.client.normalise_code_newlines(code)
-
-            syntax_error = validate_python_syntax(code)
-            if syntax_error:
-                raise ValueError(f"Generated code failed syntax validation: {syntax_error}")
-
-            test_error = validate_test_function(code)
-            if test_error:
-                raise ValueError(f"Generated code failed test function validation: {test_error}")
-
-            locator_error = validate_generated_locator_quality(code)
-            if locator_error:
-                raise ValueError(f"Generated code failed locator quality validation: {locator_error}")
-
-            # Generate a filename based on the request (slugified) or timestamp
-            # Using timestamp for uniqueness
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            slugified_request = "".join(c if c.isalnum() or c == "_" else "_" for c in user_request)[:30]
-            safe_filename = f"test_{timestamp}_{slugified_request}.py"
-
-            file_path = os.path.join(self.output_dir, safe_filename)
-
-            with open(file_path, "w", encoding="utf-8") as f:
-                f.write(code)
-
-            print(f"Test generated and saved to: {os.path.abspath(file_path)}")
-            print(f"Run with: cd {self.output_dir} && python {safe_filename}")
-            print("Screenshots will be captured to 'screenshots/' subdirectory for test evidence")
-            print("   - Test entry, step actions, success, and failure conditions")
-            return file_path
-
-        except Exception as e:
-            print(f"Error during generation: {e}")
-            raise
-
-    def _build_context_injected_prompt(self, user_request: str, page_context: PageContext) -> str:
-        """
-        Build a prompt that includes page context for more precise test generation.
-
-        Args:
-            user_request: The original user story/request
-            page_context: The scraped page context with interactive elements
-
-        Returns:
-            A prompt with page context injected for the LLM
-        """
-        return (
-            "IMPORTANT: Use the following page context to generate precise Playwright locators.\n"
-            "Only use the locators listed in the PAGE CONTEXT section. Do not invent your own selectors.\n\n"
-            f"=== PAGE CONTEXT ===\n{page_context.to_prompt_block()}\n\n"
-            f"=== USER STORY/REQUEST ===\n{user_request}"
+        """Generate placeholder-based skeleton code for the intelligent pipeline."""
+        urls = target_urls or []
+        known_urls_block = "\n".join(f"- {url}" for url in urls) if urls else "- No URLs were supplied."
+        prompt = get_skeleton_prompt_template().format(
+            user_story=user_story,
+            criteria=criteria,
+            known_urls_block=known_urls_block,
         )
+        return await self.client.generate(prompt)
+
+    async def generate_resolved_test(self, skeleton_code: str, pages_to_scrape: list[str]) -> str:
+        """Return the resolved code artifact for the intelligent pipeline.
+
+        The resolver currently performs the replacement work itself, so this method
+        acts as a compatibility seam for future polishing.
+        """
+        _ = pages_to_scrape
+        return skeleton_code
+
+    def generate_and_save(self, request_text: str, page_context_or_base_url: Any = "") -> str:
+        """Generate code directly and save it to disk."""
+        base_url = page_context_or_base_url if isinstance(page_context_or_base_url, str) else ""
+        prompt = request_text
+        if page_context_or_base_url and not isinstance(page_context_or_base_url, str):
+            prompt = f"{request_text}\n\n{build_page_context_prompt_block(page_context_or_base_url)}"
+
+        code = self.client.generate_test(prompt)
+        if not code or not code.strip():
+            raise ValueError("Generated code was empty")
+
+        syntax_error = validate_python_syntax(code)
+        if syntax_error:
+            raise ValueError(f"Generated code failed syntax validation: {syntax_error}")
+
+        quality_error = validate_generated_locator_quality(code)
+        if quality_error:
+            raise ValueError(f"Generated code failed locator quality validation: {quality_error}")
+
+        saved_path = save_generated_test(
+            test_code=code,
+            story_text=slugify(request_text[:50]),
+            base_url=base_url,
+            output_dir=self.output_dir,
+        )
+        self.generated_files.append(saved_path)
+        return saved_path

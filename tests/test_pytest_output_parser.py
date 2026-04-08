@@ -185,9 +185,10 @@ class TestParsePytestOutput:
         """Test handling of pytest output with collection errors."""
         result = parse_pytest_output(collection_error_output)
 
-        # Should return RunResult even if no duration found
         assert isinstance(result, RunResult)
-        assert result.errors == 0  # Parser doesn't extract collection errors yet
+        assert result.total == 0
+        assert result.errors == 1
+        assert result.duration == pytest.approx(0.12, abs=0.01)
 
     def test_preserves_raw_output(self, all_passed_output: str) -> None:
         """Test that raw output is preserved in result."""
@@ -330,3 +331,21 @@ Name    Stmts   Miss
         raw = "line1\nline2\nline3\n"
         filtered = format_pytest_output_for_display(raw, max_lines=2)
         assert filtered == "line2\nline3"
+
+    def test_keeps_collection_error_lines(self) -> None:
+        """Formatter should preserve collection/import error details."""
+        raw = """==================================== ERRORS ====================================
+_______________ ERROR collecting generated_tests/test_bad.py ________________
+generated_tests/test_bad.py:10: in <module>
+    class CheckoutPage:
+generated_tests/test_bad.py:11: in CheckoutPage
+    def __init__(self, page: Payable):
+NameError: name 'Payable' is not defined
+=========================== short test summary info ===========================
+ERROR generated_tests/test_bad.py
+============================== 1 error in 0.13s ============================="""
+        filtered = format_pytest_output_for_display(raw)
+
+        assert "ERROR collecting generated_tests/test_bad.py" in filtered
+        assert "NameError: name 'Payable' is not defined" in filtered
+        assert "1 error in 0.13s" in filtered

@@ -86,3 +86,4 @@ ISSUES_FOUND_AND_FIXES.md
 *.png
 !assets/*.png
 !screenshots/.gitkeep
+.tmp/

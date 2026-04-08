@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from src.prompt_utils import build_page_context_prompt_block, get_streamlit_system_prompt_template
+from src.prompt_utils import (
+    build_page_context_prompt_block,
+    get_skeleton_prompt_template,
+    get_streamlit_system_prompt_template,
+)
 
 
 def test_streamlit_prompt_contains_placeholders() -> None:
@@ -53,6 +57,18 @@ def test_streamlit_prompt_format_resolves_without_error() -> None:
     rendered = template.format(user_story="story", criteria="- do thing", count=3)
     assert "story" in rendered
     assert "do thing" in rendered
+
+
+def test_skeleton_prompt_format_resolves_without_error() -> None:
+    """Skeleton prompt should render cleanly with escaped placeholder examples."""
+    template = get_skeleton_prompt_template()
+    rendered = template.format(
+        user_story="story",
+        criteria="1. Add to cart",
+        known_urls_block="- https://example.com/",
+    )
+    assert "{{CLICK:cart link}}" in rendered
+    assert "https://example.com/" in rendered
 
 
 def test_build_page_context_prompt_block_extracts_approved_locators() -> None:

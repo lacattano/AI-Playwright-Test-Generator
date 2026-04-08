@@ -23,6 +23,7 @@ _SUMMARY_LINE_RE = re.compile(r" in ([\d.]+)s\s*=")
 _PASSED_COUNT_RE = re.compile(r"(\d+) passed")
 _FAILED_COUNT_RE = re.compile(r"(\d+) failed")
 _SKIPPED_COUNT_RE = re.compile(r"(\d+) skipped")
+_ERROR_COUNT_RE = re.compile(r"(\d+) error(?:s)?")
 _ERROR_RE = re.compile(r"FAILED .+::(\S+) - (.+)")
 _FAILURES_HEADER_RE = re.compile(r"^=+ FAILURES =+")
 _FAILURE_NAME_RE = re.compile(r"^_+ (\w+) _+")
@@ -169,6 +170,7 @@ def parse_pytest_output(raw: str) -> RunResult:
             passed_m = _PASSED_COUNT_RE.search(line)
             failed_m = _FAILED_COUNT_RE.search(line)
             skipped_m = _SKIPPED_COUNT_RE.search(line)
+            error_m = _ERROR_COUNT_RE.search(line)
             dur_m = re.search(r"in ([\d.]+)s", line)
             if passed_m:
                 run.passed = int(passed_m.group(1))
@@ -176,6 +178,8 @@ def parse_pytest_output(raw: str) -> RunResult:
                 run.failed = int(failed_m.group(1))
             if skipped_m:
                 run.skipped = int(skipped_m.group(1))
+            if error_m:
+                run.errors = int(error_m.group(1))
             if dur_m:
                 run.duration = float(dur_m.group(1))
 
@@ -204,6 +208,8 @@ def format_pytest_output_for_display(raw: str, max_lines: int = 80) -> str:
         "Error:",
         "Exception:",
         "TimeoutError:",
+        "NameError:",
+        "ERROR collecting",
         "short test summary info",
     )
 
