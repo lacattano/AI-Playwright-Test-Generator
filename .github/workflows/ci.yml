@@ -20,11 +20,14 @@ jobs:
           python-version: '3.13'
           cache: 'pip'
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pytest pytest-cov ruff mypy types-requests
+          uv sync --all-extras --no-dev
+          # We still need these for the specific lint/type steps in other jobs
+          uv run pip install pytest-cov ruff mypy types-requests
 
       - name: Run tests with coverage
         run: |

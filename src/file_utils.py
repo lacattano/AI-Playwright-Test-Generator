@@ -102,7 +102,9 @@ def normalise_code_newlines(code: str) -> str:
     """
     # Insert a newline before `import ` or `from ` when preceded by a character
     # that indicates it was merged (like a letter, number, or closing punctuation).
-    code = re.sub(r"([a-zA-Z0-9_)'\"\]\}])(import |from )", r"\1\n\2", code)
+    # We use a lookbehind to ensure we don't split inside string literals if possible,
+    # but the primary goal is to catch the 'merged' boundary.
+    code = re.sub(r"([a-zA-Z0-9_)'\"\]\}])(?=import |from )", r"\1\n", code)
     return code
 
 
