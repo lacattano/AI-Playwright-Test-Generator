@@ -86,6 +86,7 @@ async def main():
 
     # Show tag breakdown
     from collections import Counter
+
     tag_counts = Counter(e.get("tag", "unknown") for e in candidates)
     print("\nTag breakdown:")
     for tag, count in tag_counts.most_common(10):
@@ -113,9 +114,7 @@ async def main():
 
             # Text validation
             if top_elem.get("text"):
-                text_valid = resolver.text_matches_description(
-                    top_elem.get("text", ""), desc
-                )
+                text_valid = resolver.text_matches_description(top_elem.get("text", ""), desc)
             else:
                 text_valid = True
 
@@ -140,7 +139,7 @@ async def main():
             print(f"           -> {selector}")
             print(f"           (score={top_score:.2f}, candidates={len(scored)})")
             if elem_text:
-                print(f"           text: \"{elem_text}\"")
+                print(f'           text: "{elem_text}"')
             if not text_valid:
                 print("           ⚠️  TEXT VALIDATION FAILED")
         else:
@@ -153,7 +152,7 @@ async def main():
     print("=" * 60)
     total = len(unique_tokens)
     print(f"Total unique placeholders: {total}")
-    print(f"  Resolved:       {resolved} ({resolved/total*100:.0f}%)")
+    print(f"  Resolved:       {resolved} ({resolved / total * 100:.0f}%)")
     print(f"  Text mismatch:  {text_mismatch}")
     print(f"  No candidates:  {no_candidates}")
 
@@ -167,7 +166,7 @@ async def main():
             print(f"  Status:   {d['status']}")
             print(f"  Selector: {d['selector']}")
             print(f"  Score:    {d['score']:.2f}")
-            print(f"  Text:     \"{d['elem_text']}\"")
+            print(f'  Text:     "{d["elem_text"]}"')
             if d["status"] == "RESOLVED":
                 print("  ✅ Products link resolved correctly!")
             else:
@@ -183,7 +182,7 @@ async def main():
             print(f"  Status:   {d['status']}")
             print(f"  Selector: {d['selector']}")
             print(f"  Score:    {d['score']:.2f}")
-            print(f"  Text:     \"{d['elem_text']}\"")
+            print(f'  Text:     "{d["elem_text"]}"')
 
 
 if __name__ == "__main__":
