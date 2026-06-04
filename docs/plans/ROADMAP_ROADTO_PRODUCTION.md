@@ -1,0 +1,313 @@
+# Road to Production — Priorised Implementation Plan
+
+**Created:** 2026-06-03  
+**Status:** In Progress  
+**Supersedes:** Informal order plan (outdated as of 2026-05)  
+**Purpose:** Multi-session roadmap with implementation-relevant details for each item. Use checkboxes to track progress across sessions.
+
+---
+
+## Legend
+
+| Marker | Meaning |
+|--------|---------|
+| `[ ]` | Not started |
+| `[~]` | In progress |
+| `[x]` | Complete |
+| `[S]` | Shipped (pre-existing) |
+| `[R]` | Removed (no longer needed) |
+
+---
+
+## Revised Priority Order
+
+Three items from the original plan are already shipped or fixed:
+- **AI-027 Session 4** — Shipped 2026-05-22 (journey selector propagation)
+- **AI-023 Locator Repair** — Shipped 2026-05-23 (all 4 sessions)
+- **B-013 Journey stops short** — Fixed by AI-027 Session 4
+
+The revised order collapses from 12 items to **10 outstanding items** across 4 tiers.
+
+---
+
+## Tier 1 — Bug Fixes (do these first)
+
+### 1. B-014 — ASSERT Tokens Resolving to Wrong Elements
+
+**Priority:** High  
+**Status:** `[x]` Shipped 2026-06-04  
+**Impact:** False green — test passes when it should fail. Demo blocker.  
+**Backlog ref:** `## 🔴 Open Bugs` → B-014
+
+**Problem:** ASSERT placeholders for "confirmation message" resolve to elements like `.cart_quantity_delete` (delete button) instead of the actual confirmation popup. The resolver matches on shared attributes (e.g., `data-product-id`) rather than assertion intent.
+
+**Solution implemented:**
+- `_assert_action_penalty()` in `src/placeholder_scorers.py` — penalises interactive elements (buttons, submit, links with action hrefs) when action is ASSERT with message-like descriptions. Button role: -15, submit role: -15, action link: -10.
+- `_assert_message_bonus()` in `src/placeholder_scorers.py` — rewards display/alert/dialog roles for message assertions. Dialog role: +15, alert role: +15, aria alertdialog: +12, confirmation text match: +10, aria_label confirmation: +8.
+- `_is_message_like_assertion()` — detects message-like assertions using keywords: confirmation, success, popup, notification, alert.
+- `SuccessAssertStrategy` in `src/intent_matcher.py` — requires BOTH success AND message keywords to avoid over-claiming generic "confirmation message" assertions.
+- 42 unit tests in `tests/test_b014_assert_resolution.py`
+
+**Spec:** `docs/specs/FEATURE_SPEC_B014_assert_resolution.md`
+
+**Verification:** 1043 tests pass, ruff clean, mypy clean
+
+**Estimated sessions:** 1 design + 1-2 implementation  
+**Actual sessions:** 1 (completed 2026-06-04)
+
+---
+
+### 2. B-015 — Journey Scraper Picks Wrong Element
+
+**Priority:** Medium  
+**Status:** `[x]` Shipped 2026-06-04  
+**Impact:** Wrong element selection during journey discovery on single-page apps  
+**Backlog ref:** `## 🔴 Open Bugs` → B-015
+
+**Problem:** On single-page apps, the scraper sees all elements across pages. The resolver picks the first match by score, which may be from a different logical page section.
+
+**Solution implemented:**
+- Refactored `_discover_selector()` in `src/journey_scraper.py` to use `PlaceholderScorer.compute_element_score()` — the same unified scoring engine as PlaceholderOrchestrator
+- Eliminated custom Stage 1 substring match that returned first element whose text appeared in description regardless of semantic fit
+- Stage 2 LLM fallback via `self._resolver.rank_candidates()` retained for edge cases
+- No new modules needed — leverages existing battle-tested scoring (role bonuses, text overlap, visibility penalties, semantic similarity)
+
+**Spec:** `docs/specs/FEATURE_SPEC_B015_journey_element_selection.md`
+
+**Verification:** ruff clean, mypy clean, 60 journey_scraper tests pass, 1015 total tests pass
+
+**Estimated sessions:** 1  
+**Actual sessions:** 1 (completed 2026-06-04)
+
+---
+
+## Tier 2 — Feature Completion
+
+### 3. AI-010 — Page Object Model Generation Toggle
+
+**Priority:** Medium  
+**Status:** `[ ]` Open  
+**Impact:** Portfolio differentiator + Engineering Manager persona  
+**Backlog ref:** `### AI-010 — Page Object Model Generation Mode`  
+**Spec:** `docs/specs/FEATURE_SPEC_AI010_pom_toggle.md` (design session 2026-06-04)
+
+**Problem:** No toggle exists in UI/CLI for POM mode. `src/page_object_builder.py` exists but isn't wired into the pipeline.
+
+**Implementation notes:**
+- [ ] Add "Simple tests" / "Page Object Model" toggle to `streamlit_app.py`
+- [ ] Add `--pom` flag to CLI (`cli/config.py` enum or boolean)
+- [ ] Wire `src/page_object_builder.py` into `src/orchestrator.py` pipeline
+- [ ] POM mode: one class per page, one change fixes all tests using that page
+- [ ] Implement + test
+
+**Estimated sessions:** 2
+
+---
+
+### 4. AI-011 — Run History Chart
+
+**Priority:** Medium  
+**Status:** `[ ]` Open  
+**Impact:** Feeds coverage heatmap (AI-022) story — sprint-over-sprint trends  
+**Backlog ref:** `### AI-011 — Test Run History Chart`
+
+**Good news:** Data layer is ready. `src/run_result_persistence.py` already provides:
+- `compute_run_history()` — aggregates pass/fail/skip counts across runs
+- `get_flaky_tests()` — identifies alternating pass/fail
+- `compare_runs()` — diffs two runs
+
+**Implementation notes:**
+- [ ] Build chart component using Plotly (already a dependency)
+- [ ] Pass/fail trend line over time (x-axis = run date, y-axis = pass count)
+- [ ] Include flaky test indicators
+- [ ] Add to Streamlit UI as new tab in evidence/results section
+- [ ] Write spec: `docs/specs/FEATURE_SPEC_AI011_run_history_chart.md`
+- [ ] Implement + test
+
+**Estimated sessions:** 1
+
+---
+
+### 5. AI-026 — CLI Persist and Reload (Finish Step 7)
+
+**Priority:** Medium  
+**Status:** `[~]` Steps 1-6 complete  
+**Impact:** Completes CLI as standalone tool for power users / CI/CD  
+**Spec:** `docs/specs/FEATURE_SPEC_AI026_persist_generated_tests.md`
+
+**What's done:**
+- [x] `src/run_result_persistence.py` — full persistence layer
+- [x] `persist_run_result()`, `load_run_result()`, `list_run_results()`
+- [x] `load_all_run_results()`, `compute_run_history()`, `get_flaky_tests()`
+- [x] CLI menu items for reload/rerun
+
+**What may remain:**
+- [ ] Check Step 7 (Backwards Compatibility) status in spec
+- [ ] Verify `scrape_manifest.json` includes all required metadata fields
+- [ ] Ensure old package formats (pre-persistence) still load gracefully
+
+**Estimated sessions:** 0-1 (likely near-complete)
+
+---
+
+## Tier 3 — Infrastructure
+
+### 6. Phase 5 — Automated Evaluation Harness
+
+**Priority:** High (for ML Engineering portfolio)  
+**Status:** `[ ]` Not started  
+**Impact:** Regression protection for prompt/model/resolver changes
+
+**Problem:** With 800+ tests and complex resolver logic, prompt changes or model swaps can silently degrade output quality. No quantitative quality gate exists.
+
+**Implementation notes:**
+- [ ] Define frozen dataset: 10-15 user stories covering saucedemo + automationexercise
+- [ ] Record baselines: expected placeholder resolutions, test pass rates
+- [ ] Build harness script: `scripts/eval/eval_harness.py`
+- [ ] Metrics to track:
+  - Placeholder resolution accuracy (% correct matches)
+  - Generated test pass rate (% tests passing on first run)
+  - False positive rate (% tests passing with wrong assertions)
+  - Skeleton generation completeness (% criteria with placeholders)
+- [ ] Run as quality gate before commits affecting pipeline
+- [ ] Add to CI as optional job (gate, not break)
+
+**Estimated sessions:** 2-3
+
+---
+
+### 7. Phase 4 — Docker Improvements
+
+**Priority:** Medium  
+**Status:** `[~]` Basic exists, needs polish  
+**Impact:** "docker compose up" first impression + enterprise GTM  
+**Files:** `Dockerfile`, `docker-compose.yml`
+
+**Current state:**
+- Basic single-stage Dockerfile using `python:3.13-slim`
+- Uses `pip install` (not `uv`)
+- No multi-stage build
+- `docker-compose.yml` exists but may need service definitions
+
+**Improvements needed:**
+- [ ] Multi-stage build: builder stage for deps, runtime stage for app
+- [ ] Use `uv` instead of `pip` for faster, lockfile-based installs
+- [ ] Use Playwright's official image as runtime base (`mcr.microsoft.com/playwright/python`)
+- [ ] Add `uv.lock` copy + `uv sync --frozen` for reproducible builds
+- [ ] Ensure `docker-compose.yml` includes Ollama/LM Studio service
+- [ ] Test `docker compose up` produces working app
+
+**Estimated sessions:** 1
+
+---
+
+## Tier 4 — ML Engineering Roadmap
+
+### 8. Phase 2 — Full Self-Healing Reflection Loops
+
+**Priority:** Medium (portfolio)  
+**Status:** `[ ]` Foundation exists (AI-023 shipped)  
+**Impact:** "Self-healing AI automation" marketing message
+
+**Foundation already built:**
+- AI-023 (locator repair loop) — shipped
+- `src/failure_classifier.py` — classifies failure types
+- `src/locator_repair.py` — applies locator patches
+- Three-pass resolver with fallback chain
+
+**What's needed:**
+- [ ] Full iterative loop: run → parse stderr → route to reviewer agent → fix → re-run
+- [ ] Max iterations ceiling (configurable, default 3)
+- [ ] Reviewer agent that classifies fixable vs. unfixable failures
+- [ ] Integration with `src/pytest_output_parser.py`
+- [ ] Write spec: `docs/specs/FEATURE_SPEC_phase2_self_healing.md`
+
+**Estimated sessions:** 2-3
+
+---
+
+### 9. Phase 3 — Enterprise RAG
+
+**Priority:** Medium (portfolio)  
+**Status:** `[ ]` Not started  
+**Impact:** Token cost reduction + ML Engineering portfolio piece
+
+**Current state:** Resolver uses rule-based scoring + LLM disambiguation only.
+
+**What's needed:**
+- [ ] Vector DB (Milvus or Weaviate locally) for storing golden locator patterns
+- [ ] Store Playwright documentation chunks for retrieval at resolution time
+- [ ] Upgrade resolver to retrieve relevant patterns before scoring
+- [ ] Measure: does RAG improve resolution accuracy vs. current baseline?
+- [ ] Requires Phase 5 eval harness first (to measure improvement)
+- [ ] Write spec: `docs/specs/FEATURE_SPEC_phase3_rag.md`
+
+**Estimated sessions:** 3-4
+
+---
+
+### 10. Phase 1 — Multi-Agent Architecture (LangGraph/CrewAI)
+
+**Priority:** Low (architectural refactor)  
+**Status:** `[ ]` Not started  
+**Impact:** Formal multi-agent pattern for portfolio
+
+**Why last:** Core pipeline must be very stable. Eval harness must protect against regressions.
+
+**Current state:** `src/orchestrator.py` → `PlaceholderOrchestrator` → scraper chain is multi-agent in spirit.
+
+**What's needed:**
+- [ ] Formal LangGraph/CrewAI state management
+- [ ] Define agent roles: Scraper, Resolver, Generator, Reviewer
+- [ ] Refactor orchestrator to use agent framework
+- [ ] Requires Phase 5 eval harness to verify no regression
+- [ ] Write spec: `docs/specs/FEATURE_SPEC_phase1_multi_agent.md`
+
+**Estimated sessions:** 3-4
+
+---
+
+## Summary Checklist
+
+| # | Item | Tier | Status | Est. Sessions |
+|---|------|------|--------|---------------|
+| 1 | B-014 ASSERT resolution | Bug | `[x]` Shipped | 1 |
+| 2 | B-015 Journey element | Bug | `[x]` Shipped | 1 |
+| 3 | AI-010 POM Toggle | Feature | `[~]` Design complete | 2 |
+| 4 | AI-011 Run History | Feature | `[ ]` Open | 1 |
+| 5 | AI-026 CLI Persist finish | Feature | `[~]` Near-done | 0-1 |
+| 6 | Phase 5 Eval Harness | Infra | `[ ]` Open | 2-3 |
+| 7 | Phase 4 Docker polish | Infra | `[~]` Basic exists | 1 |
+| 8 | Phase 2 Self-Healing | ML | `[ ]` Foundation built | 2-3 |
+| 9 | Phase 3 RAG | ML | `[ ]` Not started | 3-4 |
+| 10 | Phase 1 Multi-Agent | ML | `[ ]` Not started | 3-4 |
+
+**Total estimated sessions:** 16-25
+
+---
+
+## Session Tracking
+
+Update this section after each session:
+
+| Date | Item Completed | Notes |
+|------|---------------|-------|
+| 2026-06-03 | Plan created | Cross-referenced against actual project state |
+| 2026-06-04 | B-014 ASSERT resolution | Shipped intent-aware scoring: _assert_action_penalty, _assert_message_bonus, _is_message_like_assertion. SuccessAssertStrategy requires BOTH success+message keywords. 42 tests, 1043 pass. |
+| 2026-06-04 | B-015 Journey element selection | Shipped unified scoring: _discover_selector() delegates to PlaceholderScorer.compute_element_score(). Eliminated dual-ranking pipeline. 60 journey tests, 1015 total pass. |
+| 2026-06-04 | AI-010 POM Toggle (design) | Design session complete. Spec: FEATURE_SPEC_AI010_pom_toggle.md. Two modes (Simple/POM) via GenerationMode enum. Phase 1: Simple-to-POM conversion + POMWriter. Phase 2: UI/CLI toggle + pipeline wiring. Phase 3: Evidence tracker integration. 17 tests planned. Zero protected file changes. |
+
+---
+
+## Rules for Implementation
+
+1. **One item per session** — per AGENTS.md §10
+2. **Design session first** for B-014 and any item marked "Needs design session"
+3. **ruff → mypy → pytest → commit** before marking any item complete
+4. **Update this doc** at end of each session with completion status
+5. **Update memory bank** with new decisions/patterns discovered
+6. **Do not skip the eval harness** (Phase 5) — build it before Phase 2/3/4 so regressions are caught
+
+---
+
+*Last updated: 2026-06-04*
