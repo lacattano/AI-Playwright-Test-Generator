@@ -86,21 +86,20 @@ The revised order collapses from 12 items to **10 outstanding items** across 4 t
 ### 3. AI-010 — Page Object Model Generation Toggle
 
 **Priority:** Medium  
-**Status:** `[ ]` Open  
+**Status:** `[x]` All Phases Complete — 2026-06-10  
 **Impact:** Portfolio differentiator + Engineering Manager persona  
 **Backlog ref:** `### AI-010 — Page Object Model Generation Mode`  
 **Spec:** `docs/specs/FEATURE_SPEC_AI010_pom_toggle.md` (design session 2026-06-04)
 
-**Problem:** No toggle exists in UI/CLI for POM mode. `src/page_object_builder.py` exists but isn't wired into the pipeline.
+**What's done:**
+- [x] Phase 1: Evidence-Aware PageObjectBuilder — `use_evidence_tracker` mode in `src/page_object_builder.py`
+- [x] Phase 2: POM Mode in PlaceholderOrchestrator — `pom_mode` flag, POM artifact building, URL mapping, method calls (15 tests)
+- [x] Phase 3: Pipeline Configuration — `pom_mode` wired through `orchestrator.py`, `pipeline_models.py`, `pipeline_writer.py` (11 tests)
+- [x] Phase 4: UI Toggle — Streamlit sidebar toggle + CLI menu toggle (wired through `ui_pipeline.py`, `ui_renderers.py`, `cli/session.py`, `cli/pipeline_runner.py`, `cli/main.py`)
+- [x] Phase 5: Export Stripping — `_strip_evidence_from_pom()` in `src/code_postprocessor.py` (18 tests)
+- [x] Full test suite: 1125 passed, 1 skipped, zero regressions
 
-**Implementation notes:**
-- [ ] Add "Simple tests" / "Page Object Model" toggle to `streamlit_app.py`
-- [ ] Add `--pom` flag to CLI (`cli/config.py` enum or boolean)
-- [ ] Wire `src/page_object_builder.py` into `src/orchestrator.py` pipeline
-- [ ] POM mode: one class per page, one change fixes all tests using that page
-- [ ] Implement + test
-
-**Estimated sessions:** 2
+**Estimated sessions:** 2 (2 used)
 
 ---
 
@@ -273,7 +272,7 @@ The revised order collapses from 12 items to **10 outstanding items** across 4 t
 |---|------|------|--------|---------------|
 | 1 | B-014 ASSERT resolution | Bug | `[x]` Shipped | 1 |
 | 2 | B-015 Journey element | Bug | `[x]` Shipped | 1 |
-| 3 | AI-010 POM Toggle | Feature | `[~]` Design complete | 2 |
+| 3 | AI-010 POM Toggle | Feature | `[x]` All phases complete | 2 |
 | 4 | AI-011 Run History | Feature | `[ ]` Open | 1 |
 | 5 | AI-026 CLI Persist finish | Feature | `[~]` Near-done | 0-1 |
 | 6 | Phase 5 Eval Harness | Infra | `[ ]` Open | 2-3 |
@@ -296,6 +295,10 @@ Update this section after each session:
 | 2026-06-04 | B-014 ASSERT resolution | Shipped intent-aware scoring: _assert_action_penalty, _assert_message_bonus, _is_message_like_assertion. SuccessAssertStrategy requires BOTH success+message keywords. 42 tests, 1043 pass. |
 | 2026-06-04 | B-015 Journey element selection | Shipped unified scoring: _discover_selector() delegates to PlaceholderScorer.compute_element_score(). Eliminated dual-ranking pipeline. 60 journey tests, 1015 total pass. |
 | 2026-06-04 | AI-010 POM Toggle (design) | Design session complete. Spec: FEATURE_SPEC_AI010_pom_toggle.md. Two modes (Simple/POM) via GenerationMode enum. Phase 1: Simple-to-POM conversion + POMWriter. Phase 2: UI/CLI toggle + pipeline wiring. Phase 3: Evidence tracker integration. 17 tests planned. Zero protected file changes. |
+| 2026-06-09 | AI-010 Phases 1-3 | Shipped evidence-aware POM builder (Phase 1), POM mode in PlaceholderOrchestrator (Phase 2), pipeline configuration wiring (Phase 3). 26 unit tests. `pom_mode` flows: TestOrchestrator → PlaceholderOrchestrator → PageObjectBuilder → PipelineArtifactSet → package_manifest.json. 1107 tests pass. |
+| 2026-06-09 | AI-010 Phase 4 (UI Toggle) | Shipped Streamlit sidebar toggle (`ui_renderers.py`), `pom_mode` in `st.session_state` → `streamlit_app.py` → `ui_pipeline.run_pipeline()`. CLI: `pom_mode` in `Session` dataclass, "POM Mode" menu item in `cli/main.py` with colored feedback, forwarded via `cli/pipeline_runner.py`. ruff clean, mypy clean, 1107 tests pass. Phase 5 (export stripping) remains. |
+| 2026-06-10 | AI-010 Phase 5 (Export Stripping) | Shipped `_strip_evidence_from_pom()` in `src/code_postprocessor.py`. Converts evidence-aware POM to clean POM: strips EvidenceTracker import, replaces tracker.click/fill/navigate/assert_visible/get_text/select with page.locator equivalents, adds expect() imports for assertions. 18 unit tests in `tests/test_code_postprocessor_pom_export.py`. ruff clean, mypy clean, 1125 passed, 1 skipped. AI-010 feature complete. |
+| 2026-06-08 | Phase 4 Export (core) | Shipped `ExportMode` enum, `ExportService.export()`, `strip_evidence_from_test_code()`, `strip_evidence_from_pom()`. 28 unit tests in `tests/test_phase4_export.py`. 1068 tests pass. **TODO:** Streamlit export panel + CLI export menu option. |
 
 ---
 
@@ -310,4 +313,4 @@ Update this section after each session:
 
 ---
 
-*Last updated: 2026-06-04*
+*Last updated: 2026-06-10*
