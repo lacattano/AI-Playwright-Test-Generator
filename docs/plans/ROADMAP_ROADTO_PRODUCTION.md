@@ -43,7 +43,7 @@ The revised order collapses from 12 items to **10 outstanding items** across 4 t
 
 **Solution implemented:**
 - `_assert_action_penalty()` in `src/placeholder_scorers.py` — penalises interactive elements (buttons, submit, links with action hrefs) when action is ASSERT with message-like descriptions. Button role: -15, submit role: -15, action link: -10.
-- `_assert_message_bonus()` in `src/placeholder_scorers.py` — rewards display/alert/dialog roles for message assertions. Dialog role: +15, alert role: +15, aria alertdialog: +12, confirmation text match: +10, aria_label confirmation: +8.
+- `_assert_message_bonus()` in `src/placeholder_scorers.py` — rewards display/alert/dialog roles for assertions. Dialog role: +15, alert role: +15, aria alertdialog: +12, confirmation text match: +10, aria_label confirmation: +8.
 - `_is_message_like_assertion()` — detects message-like assertions using keywords: confirmation, success, popup, notification, alert.
 - `SuccessAssertStrategy` in `src/intent_matcher.py` — requires BOTH success AND message keywords to avoid over-claiming generic "confirmation message" assertions.
 - 42 unit tests in `tests/test_b014_assert_resolution.py`
@@ -130,7 +130,7 @@ The revised order collapses from 12 items to **10 outstanding items** across 4 t
 ### 5. AI-026 — CLI Persist and Reload (Finish Step 7)
 
 **Priority:** Medium  
-**Status:** `[~]` Steps 1-6 complete  
+**Status:** `[x]` Step 7 Verified Complete — 2026-06-11  
 **Impact:** Completes CLI as standalone tool for power users / CI/CD  
 **Spec:** `docs/specs/FEATURE_SPEC_AI026_persist_generated_tests.md`
 
@@ -139,13 +139,14 @@ The revised order collapses from 12 items to **10 outstanding items** across 4 t
 - [x] `persist_run_result()`, `load_run_result()`, `list_run_results()`
 - [x] `load_all_run_results()`, `compute_run_history()`, `get_flaky_tests()`
 - [x] CLI menu items for reload/rerun
+- [x] Step 7: Backwards Compatibility — `find_existing_packages()`, `_reconstruct_manifest()`, `load_package_manifest(reconstruct=True)` in `src/pipeline_artifact_manager.py`
+- [x] `scrape_manifest.json` includes all required metadata fields (generated_at, base_url, test_file_path, coverage_summary_path, run_command, pages_scraped, page_requirements, journeys, page_objects, records)
+- [x] Old package formats (pre-persistence) load gracefully via `_reconstruct_manifest()` with 22 unit tests
 
-**What may remain:**
-- [ ] Check Step 7 (Backwards Compatibility) status in spec
-- [ ] Verify `scrape_manifest.json` includes all required metadata fields
-- [ ] Ensure old package formats (pre-persistence) still load gracefully
+**Verification:** ruff clean, mypy clean, 1137 tests pass, 1 skipped
 
-**Estimated sessions:** 0-1 (likely near-complete)
+**Estimated sessions:** 0-1  
+**Actual sessions:** 0.25 (verification only)
 
 ---
 
@@ -274,7 +275,7 @@ The revised order collapses from 12 items to **10 outstanding items** across 4 t
 | 2 | B-015 Journey element | Bug | `[x]` Shipped | 1 |
 | 3 | AI-010 POM Toggle | Feature | `[x]` All phases complete | 2 |
 | 4 | AI-011 Run History | Feature | `[ ]` Open | 1 |
-| 5 | AI-026 CLI Persist finish | Feature | `[~]` Near-done | 0-1 |
+| 5 | AI-026 CLI Persist finish | Feature | `[x]` Step 7 verified | 0-1 |
 | 6 | Phase 5 Eval Harness | Infra | `[ ]` Open | 2-3 |
 | 7 | Phase 4 Docker polish | Infra | `[~]` Basic exists | 1 |
 | 8 | Phase 2 Self-Healing | ML | `[ ]` Foundation built | 2-3 |
@@ -299,6 +300,7 @@ Update this section after each session:
 | 2026-06-09 | AI-010 Phase 4 (UI Toggle) | Shipped Streamlit sidebar toggle (`ui_renderers.py`), `pom_mode` in `st.session_state` → `streamlit_app.py` → `ui_pipeline.run_pipeline()`. CLI: `pom_mode` in `Session` dataclass, "POM Mode" menu item in `cli/main.py` with colored feedback, forwarded via `cli/pipeline_runner.py`. ruff clean, mypy clean, 1107 tests pass. Phase 5 (export stripping) remains. |
 | 2026-06-10 | AI-010 Phase 5 (Export Stripping) | Shipped `_strip_evidence_from_pom()` in `src/code_postprocessor.py`. Converts evidence-aware POM to clean POM: strips EvidenceTracker import, replaces tracker.click/fill/navigate/assert_visible/get_text/select with page.locator equivalents, adds expect() imports for assertions. 18 unit tests in `tests/test_code_postprocessor_pom_export.py`. ruff clean, mypy clean, 1125 passed, 1 skipped. AI-010 feature complete. |
 | 2026-06-08 | Phase 4 Export (core) | Shipped `ExportMode` enum, `ExportService.export()`, `strip_evidence_from_test_code()`, `strip_evidence_from_pom()`. 28 unit tests in `tests/test_phase4_export.py`. 1068 tests pass. **TODO:** Streamlit export panel + CLI export menu option. |
+| 2026-06-11 | AI-026 Step 7 (Backwards Compatibility) | Verified Step 7 complete: `find_existing_packages()`, `_reconstruct_manifest()`, `load_package_manifest(reconstruct=True)` all implemented in `src/pipeline_artifact_manager.py`. 22 unit tests cover legacy package loading. `scrape_manifest.json` includes all required metadata fields. Old package formats load gracefully. 1137 tests pass. |
 
 ---
 
@@ -313,4 +315,4 @@ Update this section after each session:
 
 ---
 
-*Last updated: 2026-06-10*
+*Last updated: 2026-06-11*
