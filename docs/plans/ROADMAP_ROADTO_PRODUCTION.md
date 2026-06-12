@@ -106,24 +106,21 @@ The revised order collapses from 12 items to **10 outstanding items** across 4 t
 ### 4. AI-011 — Run History Chart
 
 **Priority:** Medium  
-**Status:** `[ ]` Open  
+**Status:** `[x]` Complete — 2026-06-12  
 **Impact:** Feeds coverage heatmap (AI-022) story — sprint-over-sprint trends  
-**Backlog ref:** `### AI-011 — Test Run History Chart`
+**Backlog ref:** `### AI-011 — Test Run History Chart`  
+**Spec:** `docs/specs/FEATURE_SPEC_AI011_run_history_chart.md`
 
-**Good news:** Data layer is ready. `src/run_result_persistence.py` already provides:
-- `compute_run_history()` — aggregates pass/fail/skip counts across runs
-- `get_flaky_tests()` — identifies alternating pass/fail
-- `compare_runs()` — diffs two runs
+**What's done:**
+- [x] `src/run_history_chart.py` — Plotly stacked bar chart with pass-rate line overlay (10 tests)
+- [x] `src/run_history_cli.py` — ASCII table renderer for CLI (19 tests)
+- [x] `src/ui_renderers.py` — Run History tab in EvidenceViewer with scope selector, flaky tests, comparison
+- [x] CLI integration verified — `render_run_history_summary()` in `cli/run_results_display.py`
+- [x] Export service verified — `run_results/` included in exported packages
+- [x] 29 new tests, 1166 total pass, zero regressions
 
-**Implementation notes:**
-- [ ] Build chart component using Plotly (already a dependency)
-- [ ] Pass/fail trend line over time (x-axis = run date, y-axis = pass count)
-- [ ] Include flaky test indicators
-- [ ] Add to Streamlit UI as new tab in evidence/results section
-- [ ] Write spec: `docs/specs/FEATURE_SPEC_AI011_run_history_chart.md`
-- [ ] Implement + test
-
-**Estimated sessions:** 1
+**Estimated sessions:** 1  
+**Actual sessions:** 2
 
 ---
 
@@ -274,7 +271,7 @@ The revised order collapses from 12 items to **10 outstanding items** across 4 t
 | 1 | B-014 ASSERT resolution | Bug | `[x]` Shipped | 1 |
 | 2 | B-015 Journey element | Bug | `[x]` Shipped | 1 |
 | 3 | AI-010 POM Toggle | Feature | `[x]` All phases complete | 2 |
-| 4 | AI-011 Run History | Feature | `[ ]` Open | 1 |
+| 4 | AI-011 Run History | Feature | `[x]` Complete | 2 |
 | 5 | AI-026 CLI Persist finish | Feature | `[x]` Step 7 verified | 0-1 |
 | 6 | Phase 5 Eval Harness | Infra | `[ ]` Open | 2-3 |
 | 7 | Phase 4 Docker polish | Infra | `[~]` Basic exists | 1 |
@@ -301,6 +298,7 @@ Update this section after each session:
 | 2026-06-10 | AI-010 Phase 5 (Export Stripping) | Shipped `_strip_evidence_from_pom()` in `src/code_postprocessor.py`. Converts evidence-aware POM to clean POM: strips EvidenceTracker import, replaces tracker.click/fill/navigate/assert_visible/get_text/select with page.locator equivalents, adds expect() imports for assertions. 18 unit tests in `tests/test_code_postprocessor_pom_export.py`. ruff clean, mypy clean, 1125 passed, 1 skipped. AI-010 feature complete. |
 | 2026-06-08 | Phase 4 Export (core) | Shipped `ExportMode` enum, `ExportService.export()`, `strip_evidence_from_test_code()`, `strip_evidence_from_pom()`. 28 unit tests in `tests/test_phase4_export.py`. 1068 tests pass. **TODO:** Streamlit export panel + CLI export menu option. |
 | 2026-06-11 | AI-026 Step 7 (Backwards Compatibility) | Verified Step 7 complete: `find_existing_packages()`, `_reconstruct_manifest()`, `load_package_manifest(reconstruct=True)` all implemented in `src/pipeline_artifact_manager.py`. 22 unit tests cover legacy package loading. `scrape_manifest.json` includes all required metadata fields. Old package formats load gracefully. 1137 tests pass. |
+| 2026-06-12 | AI-011 Run History Chart | Shipped Phase 3 Streamlit integration: Run History tab in EvidenceViewer with scope selector, Plotly stacked bar chart, flaky test expandable panel, and run comparison. Also shipped `src/run_history_chart.py` (10 tests) and `src/run_history_cli.py` (19 tests). 29 new tests, 1166 total pass. |
 
 ---
 
@@ -315,4 +313,4 @@ Update this section after each session:
 
 ---
 
-*Last updated: 2026-06-11*
+*Last updated: 2026-06-12*
