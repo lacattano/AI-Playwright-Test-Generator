@@ -153,12 +153,13 @@ The revised order collapses from 12 items to **10 outstanding items** across 4 t
 
 **Priority:** High (for ML Engineering portfolio)  
 **Status:** `[ ]` Not started  
-**Impact:** Regression protection for prompt/model/resolver changes
+**Impact:** Regression protection for prompt/model/resolver changes + quantitative baseline for dual-tier comparison
 
 **Problem:** With 800+ tests and complex resolver logic, prompt changes or model swaps can silently degrade output quality. No quantitative quality gate exists.
 
 **Implementation notes:**
 - [ ] Define frozen dataset: 10-15 user stories covering saucedemo + automationexercise
+- [ ] Expand dataset: include multi-page mock documents (PDFs, HTML docs) for RAG-ready evaluation
 - [ ] Record baselines: expected placeholder resolutions, test pass rates
 - [ ] Build harness script: `scripts/eval/eval_harness.py`
 - [ ] Metrics to track:
@@ -166,6 +167,10 @@ The revised order collapses from 12 items to **10 outstanding items** across 4 t
   - Generated test pass rate (% tests passing on first run)
   - False positive rate (% tests passing with wrong assertions)
   - Skeleton generation completeness (% criteria with placeholders)
+- [ ] **Dual-Tier Awareness:** Harness must support Free vs Paid tier configurations
+  - Free tier: single-model, sequential pipeline (current architecture)
+  - Paid tier: multi-agent, LangGraph state machine (Phase 1 architecture)
+  - Compare: Monolithic vs Multi-Agent quality metrics side-by-side
 - [ ] Run as quality gate before commits affecting pipeline
 - [ ] Add to CI as optional job (gate, not break)
 
@@ -231,9 +236,15 @@ The revised order collapses from 12 items to **10 outstanding items** across 4 t
 
 **Current state:** Resolver uses rule-based scoring + LLM disambiguation only.
 
+**Research verified (2026-06-14):**
+- Milvus/Weaviate confirmed as viable vector DB options for local deployment
+- RAG pattern: Ingestion Agent parses PDFs, Word docs, Confluence pages → vector store → retrieval at resolution time
+- Requires Phase 5 eval harness first (to measure improvement vs. current baseline)
+
 **What's needed:**
 - [ ] Vector DB (Milvus or Weaviate locally) for storing golden locator patterns
 - [ ] Store Playwright documentation chunks for retrieval at resolution time
+- [ ] Hook into Ingestion Agent (Phase 1) for document parsing
 - [ ] Upgrade resolver to retrieve relevant patterns before scoring
 - [ ] Measure: does RAG improve resolution accuracy vs. current baseline?
 - [ ] Requires Phase 5 eval harness first (to measure improvement)
@@ -243,24 +254,118 @@ The revised order collapses from 12 items to **10 outstanding items** across 4 t
 
 ---
 
-### 10. Phase 1 — Multi-Agent Architecture (LangGraph/CrewAI)
+### 10. Phase 1 — Multi-Agent Architecture (LangGraph) with Model-Agnostic Providers
 
-**Priority:** Low (architectural refactor)  
+**Priority:** High (promoted from Low)  
 **Status:** `[ ]` Not started  
-**Impact:** Formal multi-agent pattern for portfolio
+**Impact:** Formal multi-agent pattern for portfolio + enables Phase 3 RAG + complete model flexibility
 
-**Why last:** Core pipeline must be very stable. Eval harness must protect against regressions.
+**Research verified (2026-06-14):**
+- LangGraph confirmed as mature framework for multi-agent orchestration (state machines, human-in-the-loop)
+- Gemma 4 models verified (released April 2026 by Google, Apache 2.0 licensed)
+- **IMPORTANT:** Do NOT use DiffusionGemma — it's weaker on reasoning benchmarks (MMLU Pro: 77.6% vs 82.6%, AIME: 69.1% vs 88.3%)
+- Use standard Gemma 4 26B-A4B MoE for all agents
 
-**Current state:** `src/orchestrator.py` → `PlaceholderOrchestrator` → scraper chain is multi-agent in spirit.
+**Proposed agent roles with verified models:**
+- [ ] **Ingestion Agent:** Gemma 4 26B-A4B MoE (3.8B active params, ~14.4GB at 4-bit) — parses PDFs, Word docs, Confluence pages
+- [ ] **QA Director:** Gemma 4 31B Dense (~17.5GB at 4-bit) — routes test criteria to correct agent
+- [ ] **Script Synthesizer:** Gemma 4 26B-A4B MoE (~14.4GB at 4-bit) — generates Playwright test code
+
+**Hardware requirements:** ~32GB RAM minimum for dual-model deployment at 4-bit quantization
+
+#### Model-Agnostic Architecture
+
+**Core Principle:** The pipeline is a **model orchestration layer**, not a model lock-in. Users have complete freedom to:
+- Choose any provider (local or cloud)
+- Choose any model per agent
+- Mix and match providers across agents
+- Swap models without code changes
+- Use their own fine-tuned models
+
+**Existing Foundation:** `src/llm_providers/__init__.py` already implements:
+- `LLMProvider` ABC with `complete()`, `list_models()`, `provider_name` interface
+- `OllamaProvider`, `LMStudioProvider`, `OpenAIProvider` (cloud + local modes)
+- `get_provider()` factory function
+- `create_provider_from_env()` from environment variables
+- `auto_detect_provider()` probing local ports
+
+**Phase 1 Extends This To:**
+
+1. **Per-Agent Model Selection** — Each agent configures its own provider + model
+   ```bash
+   # Example: Mixed local + cloud configuration
+   AGENT_INGESTION_PROVIDER=ollama
+   AGENT_INGESTION_MODEL=my-finetuned-ingestion-model
+
+   AGENT_QA_DIRECTOR_PROVIDER=anthropic
+   AGENT_QA_DIRECTOR_MODEL=claude-sonnet-4-20250514
+
+   AGENT_SCRIPT_SYNTHESIZER_PROVIDER=lm-studio
+   AGENT_SCRIPT_SYNTHESIZER_MODEL=my-custom-test-generator
+   ```
+
+2. **Cloud Provider Support** — Add providers for cloud LLMs
+   - [ ] `AnthropicProvider` — for Claude models (Claude Sonnet 4, Opus 4)
+   - [ ] `GoogleProvider` — for Gemini models (Gemini 2.5 Pro)
+   - [ ] Extend `get_provider()` factory to support all cloud providers
+   - [ ] Support API key management per provider
+
+3. **Configuration System** — `model_config.json` or env var pattern
+   ```json
+   {
+     "agents": {
+       "ingestion": {
+         "provider": "ollama",
+         "model": "my-ingestion-model",
+         "timeout": 60
+       },
+       "qa_director": {
+         "provider": "anthropic",
+         "model": "claude-sonnet-4-20250514",
+         "api_key_env": "ANTHROPIC_API_KEY",
+         "timeout": 120
+       },
+       "script_synthesizer": {
+         "provider": "lm-studio",
+         "model": "my-custom-test-generator",
+         "timeout": 300
+       }
+     },
+     "pipeline": {
+       "agents": ["ingestion", "qa_director", "script_synthesizer"],
+       "fallback_providers": ["ollama", "openai-local"]
+     }
+   }
+   ```
+
+4. **Fallback Mechanism** — If one model fails, try the next in chain
+   - Configurable fallback chain per agent
+   - Graceful degradation (log warning, continue with fallback)
+   - No hard failure on model unavailability
+
+5. **UI/CLI Integration** — Model selection interface
+   - [ ] Streamlit: Per-agent model selector in sidebar
+   - [ ] CLI: Menu option to configure models per agent
+   - [ ] Save/load configurations as named profiles
+
+6. **Default Model Recommendations** — Documented but overridable
+   - Gemma 4 26B-A4B for Ingestion (fast, efficient)
+   - Gemma 4 31B Dense for QA Director (strong reasoning)
+   - Gemma 4 26B-A4B for Script Synthesizer (balanced)
+   - Users can override any agent with their preferred model/provider
 
 **What's needed:**
-- [ ] Formal LangGraph/CrewAI state management
-- [ ] Define agent roles: Scraper, Resolver, Generator, Reviewer
+- [ ] Formal LangGraph state management
+- [ ] Define agent roles: Ingestion, QA Director, Script Synthesizer
 - [ ] Refactor orchestrator to use agent framework
+- [ ] Implement per-agent model configuration
+- [ ] Add cloud providers (Anthropic, Google)
+- [ ] Configuration UI for model selection
+- [ ] Fallback mechanism implementation
 - [ ] Requires Phase 5 eval harness to verify no regression
 - [ ] Write spec: `docs/specs/FEATURE_SPEC_phase1_multi_agent.md`
 
-**Estimated sessions:** 3-4
+**Estimated sessions:** 4-5 (increased from 3-4 due to cloud provider integration)
 
 ---
 
@@ -277,7 +382,7 @@ The revised order collapses from 12 items to **10 outstanding items** across 4 t
 | 7 | Phase 4 Docker polish | Infra | `[~]` Basic exists | 1 |
 | 8 | Phase 2 Self-Healing | ML | `[ ]` Foundation built | 2-3 |
 | 9 | Phase 3 RAG | ML | `[ ]` Not started | 3-4 |
-| 10 | Phase 1 Multi-Agent | ML | `[ ]` Not started | 3-4 |
+| 10 | Phase 1 Multi-Agent | ML | `[ ]` High (promoted) | 3-4 |
 
 **Total estimated sessions:** 16-25
 
@@ -299,6 +404,7 @@ Update this section after each session:
 | 2026-06-08 | Phase 4 Export (core) | Shipped `ExportMode` enum, `ExportService.export()`, `strip_evidence_from_test_code()`, `strip_evidence_from_pom()`. 28 unit tests in `tests/test_phase4_export.py`. 1068 tests pass. **TODO:** Streamlit export panel + CLI export menu option. |
 | 2026-06-11 | AI-026 Step 7 (Backwards Compatibility) | Verified Step 7 complete: `find_existing_packages()`, `_reconstruct_manifest()`, `load_package_manifest(reconstruct=True)` all implemented in `src/pipeline_artifact_manager.py`. 22 unit tests cover legacy package loading. `scrape_manifest.json` includes all required metadata fields. Old package formats load gracefully. 1137 tests pass. |
 | 2026-06-12 | AI-011 Run History Chart | Shipped complete feature: `src/run_history_chart.py` (10 tests, Plotly stacked bar + pass-rate line), `src/run_history_cli.py` (19 tests, ASCII tables), Streamlit Run History tab in EvidenceViewer with scope selector + flaky test panel + run comparison, CLI `render_run_history_summary()` wired into `cli/pipeline_runner.py` (2 call sites), `run_results/` copy added to `src/export_service.py` exports. 29 new tests, 1166 total pass, zero regressions. |
+| 2026-06-14 | Research Session | Verified Gemma 4 models (released April 2026, Apache 2.0). Confirmed LangGraph for multi-agent orchestration. Researched RAG patterns (Milvus/Weaviate). Updated ROADMAP with dual-tier eval harness metrics, verified model specs for Phase 1 agents, promoted Phase 1 to High priority. Key finding: DiffusionGemma weaker on reasoning (MMLU Pro 77.6% vs 82.6%) — use standard Gemma 4 26B-A4B MoE. |
 
 ---
 
@@ -313,4 +419,4 @@ Update this section after each session:
 
 ---
 
-*Last updated: 2026-06-12*
+*Last updated: 2026-06-14*
