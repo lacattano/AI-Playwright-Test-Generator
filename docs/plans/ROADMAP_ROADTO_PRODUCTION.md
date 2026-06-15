@@ -149,7 +149,30 @@ The revised order collapses from 12 items to **10 outstanding items** across 4 t
 
 ## Tier 3 — Infrastructure
 
-### 6. Phase 5 — Automated Evaluation Harness
+### 6. AI-012 — SQLite Persistence Layer
+
+**Priority:** Medium  
+**Status:** `[ ]` Draft spec complete — 2026-06-14  
+**Impact:** Replaces JSON file persistence with queryable SQLite DB. Foundation for Phase 5 Eval Harness.  
+**Backlog ref:** `### AI-012 — SQLite Persistence`  
+**Spec:** `docs/specs/FEATURE_SPEC_sqlite_persistence.md`
+
+**What it does:**
+- Replaces `evidence/run_results/*.json` with single `evidence/runs.sqlite`
+- SQL-based flaky test detection (replaces in-memory loops)
+- ACID-compliant atomic writes
+- Ad-hoc query interface for Run History Chart (AI-011)
+- **Graph compilation:** CSV-to-SQLite pipeline for `project_sanitizer.py` (nodes.csv/links.csv → SQLite graph store with recursive CTE support)
+
+**Dependencies:** AI-026 (shipped), AI-011 (shipped) — prerequisites met.
+
+**Why before Phase 5:** The Eval Harness needs a queryable history store for baseline comparisons. SQLite provides this without adding external dependencies (stdlib only).
+
+**Estimated sessions:** 2
+
+---
+
+### 7. Phase 5 — Automated Evaluation Harness
 
 **Priority:** High (for ML Engineering portfolio)  
 **Status:** `[ ]` Not started  
@@ -178,7 +201,7 @@ The revised order collapses from 12 items to **10 outstanding items** across 4 t
 
 ---
 
-### 7. Phase 4 — Docker Improvements
+### 8. Phase 4 — Docker Improvements
 
 **Priority:** Medium  
 **Status:** `[~]` Basic exists, needs polish  
@@ -378,13 +401,14 @@ The revised order collapses from 12 items to **10 outstanding items** across 4 t
 | 3 | AI-010 POM Toggle | Feature | `[x]` All phases complete | 2 |
 | 4 | AI-011 Run History | Feature | `[x]` Complete | 2 |
 | 5 | AI-026 CLI Persist finish | Feature | `[x]` Step 7 verified | 0-1 |
-| 6 | Phase 5 Eval Harness | Infra | `[ ]` Open | 2-3 |
-| 7 | Phase 4 Docker polish | Infra | `[~]` Basic exists | 1 |
-| 8 | Phase 2 Self-Healing | ML | `[ ]` Foundation built | 2-3 |
-| 9 | Phase 3 RAG | ML | `[ ]` Not started | 3-4 |
-| 10 | Phase 1 Multi-Agent | ML | `[ ]` High (promoted) | 3-4 |
+| 6 | AI-012 SQLite Persistence | Infra | `[ ]` Draft spec | 2 |
+| 7 | Phase 5 Eval Harness | Infra | `[ ]` Open (depends on AI-012) | 2-3 |
+| 8 | Phase 4 Docker polish | Infra | `[~]` Basic exists | 1 |
+| 9 | Phase 2 Self-Healing | ML | `[ ]` Foundation built | 2-3 |
+| 10 | Phase 3 RAG | ML | `[ ]` Not started (depends on AI-012) | 3-4 |
+| 11 | Phase 1 Multi-Agent | ML | `[ ]` High (promoted) | 3-4 |
 
-**Total estimated sessions:** 16-25
+**Total estimated sessions:** 18-27 (+2 for AI-012)
 
 ---
 
@@ -405,6 +429,7 @@ Update this section after each session:
 | 2026-06-11 | AI-026 Step 7 (Backwards Compatibility) | Verified Step 7 complete: `find_existing_packages()`, `_reconstruct_manifest()`, `load_package_manifest(reconstruct=True)` all implemented in `src/pipeline_artifact_manager.py`. 22 unit tests cover legacy package loading. `scrape_manifest.json` includes all required metadata fields. Old package formats load gracefully. 1137 tests pass. |
 | 2026-06-12 | AI-011 Run History Chart | Shipped complete feature: `src/run_history_chart.py` (10 tests, Plotly stacked bar + pass-rate line), `src/run_history_cli.py` (19 tests, ASCII tables), Streamlit Run History tab in EvidenceViewer with scope selector + flaky test panel + run comparison, CLI `render_run_history_summary()` wired into `cli/pipeline_runner.py` (2 call sites), `run_results/` copy added to `src/export_service.py` exports. 29 new tests, 1166 total pass, zero regressions. |
 | 2026-06-14 | Research Session | Verified Gemma 4 models (released April 2026, Apache 2.0). Confirmed LangGraph for multi-agent orchestration. Researched RAG patterns (Milvus/Weaviate). Updated ROADMAP with dual-tier eval harness metrics, verified model specs for Phase 1 agents, promoted Phase 1 to High priority. Key finding: DiffusionGemma weaker on reasoning (MMLU Pro 77.6% vs 82.6%) — use standard Gemma 4 26B-A4B MoE. |
+| 2026-06-14 | AI-012 SQLite Persistence (design) | Draft spec complete: FEATURE_SPEC_sqlite_persistence.md. 4 phases (core module, API compat, export integration, query interface). 28 tests planned. Zero new deps (sqlite3 stdlib). Graph compilation for project_sanitizer.py (CSV→SQLite with recursive CTEs). Added to Tier 3 Infra before Phase 5 Eval Harness. Neo4j research: GPL v3 copyleft risk — recommended Apache AGE for dev-time graph tooling instead. |
 
 ---
 
