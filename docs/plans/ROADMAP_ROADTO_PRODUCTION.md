@@ -152,7 +152,7 @@ The revised order collapses from 12 items to **10 outstanding items** across 4 t
 ### 6. AI-012 — SQLite Persistence Layer
 
 **Priority:** Medium  
-**Status:** `[ ]` Draft spec complete — 2026-06-14  
+**Status:** `[x]` verified complete — 2026-06-16  
 **Impact:** Replaces JSON file persistence with queryable SQLite DB. Foundation for Phase 5 Eval Harness.  
 **Backlog ref:** `### AI-012 — SQLite Persistence`  
 **Spec:** `docs/specs/FEATURE_SPEC_sqlite_persistence.md`
