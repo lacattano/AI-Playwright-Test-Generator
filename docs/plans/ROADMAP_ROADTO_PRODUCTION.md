@@ -172,7 +172,27 @@ The revised order collapses from 12 items to **10 outstanding items** across 4 t
 
 ---
 
-### 7. Phase 5 — Automated Evaluation Harness
+### 7. Phase 4 — Docker Improvements
+
+**Priority**: Medium  
+**Status**: `[x]` Complete  
+**Impact**: "docker compose up" first impression + enterprise GTM  
+**Files**: `Dockerfile`, `docker-compose.yml`
+
+**Implementation completed**:
+- [x] Multi-stage build: builder stage for deps, runtime stage for app
+- [x] Use `uv` instead of `pip` for faster, lockfile-based installs
+- [x] Use Playwright's official image as runtime base (`mcr.microsoft.com/playwright/python:v1.50.0-jammy`)
+- [x] Added `uv.lock` copy + `uv sync --frozen` for reproducible builds
+- [x] Updated `docker-compose.yml` to include all provider configuration (Ollama, LM Studio, OpenAI-compatible local servers)
+- [x] Fixed volume mounts to only mount user-specific directories (generated_tests, evidence, notebooks, scripts)
+- [x] Updated default command to run Streamlit app
+
+**Estimated sessions:** 1
+
+---
+
+### 8. Phase 5 — Automated Evaluation Harness
 
 **Priority:** High (for ML Engineering portfolio)  
 **Status:** `[ ]` Not started  
@@ -201,29 +221,9 @@ The revised order collapses from 12 items to **10 outstanding items** across 4 t
 
 ---
 
-### 8. Phase 4 — Docker Improvements
-
-**Priority**: Medium  
-**Status**: `[x]` Complete  
-**Impact**: "docker compose up" first impression + enterprise GTM  
-**Files**: `Dockerfile`, `docker-compose.yml`
-
-**Implementation completed**:
-- [x] Multi-stage build: builder stage for deps, runtime stage for app
-- [x] Use `uv` instead of `pip` for faster, lockfile-based installs
-- [x] Use Playwright's official image as runtime base (`mcr.microsoft.com/playwright/python:v1.50.0-jammy`)
-- [x] Added `uv.lock` copy + `uv sync --frozen` for reproducible builds
-- [x] Updated `docker-compose.yml` to include all provider configuration (Ollama, LM Studio, OpenAI-compatible local servers)
-- [x] Fixed volume mounts to only mount user-specific directories (generated_tests, evidence, notebooks, scripts)
-- [x] Updated default command to run Streamlit app
-
-**Estimated sessions:** 1
-
----
-
 ## Tier 4 — ML Engineering Roadmap
 
-### 8. Phase 2 — Full Self-Healing Reflection Loops
+### 9. Phase 2 — Full Self-Healing Reflection Loops
 
 **Priority:** Medium (portfolio)  
 **Status:** `[ ]` Foundation exists (AI-023 shipped)  
@@ -246,7 +246,7 @@ The revised order collapses from 12 items to **10 outstanding items** across 4 t
 
 ---
 
-### 9. Phase 3 — Enterprise RAG
+### 10. Phase 3 — Enterprise RAG
 
 **Priority:** Medium (portfolio)  
 **Status:** `[ ]` Not started  
@@ -397,8 +397,8 @@ The revised order collapses from 12 items to **10 outstanding items** across 4 t
 | 4 | AI-011 Run History | Feature | `[x]` Complete | 2 |
 | 5 | AI-026 CLI Persist finish | Feature | `[x]` Step 7 verified | 0-1 |
 | 6 | AI-012 SQLite Persistence | Infra | `[x]` Complete | 2 |
-| 7 | Phase 5 Eval Harness | Infra | `[ ]` Open (depends on AI-012) | 2-3 |
-| 8 | Phase 4 Docker polish | Infra | `[x]` Complete | 1 |
+| 7 | Phase 4 Docker polish | Infra | `[x]` Complete | 1 |
+| 8 | Phase 5 Eval Harness | Infra | `[ ]` Open (depends on AI-012) | 2-3 |
 | 9 | Phase 2 Self-Healing | ML | `[ ]` Foundation built | 2-3 |
 | 10 | Phase 3 RAG | ML | `[ ]` Not started (depends on AI-012) | 3-4 |
 | 11 | Phase 1 Multi-Agent | ML | `[ ]` High (promoted) | 3-4 |
