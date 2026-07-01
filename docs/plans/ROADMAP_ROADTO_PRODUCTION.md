@@ -396,7 +396,7 @@ The revised order collapses from 12 items to **10 outstanding items** across 4 t
 | 3 | AI-010 POM Toggle | Feature | `[x]` All phases complete | 2 |
 | 4 | AI-011 Run History | Feature | `[x]` Complete | 2 |
 | 5 | AI-026 CLI Persist finish | Feature | `[x]` Step 7 verified | 0-1 |
-| 6 | AI-012 SQLite Persistence | Infra | `[ ]` Draft spec | 2 |
+| 6 | AI-012 SQLite Persistence | Infra | `[x]` Complete | 2 |
 | 7 | Phase 5 Eval Harness | Infra | `[ ]` Open (depends on AI-012) | 2-3 |
 | 8 | Phase 4 Docker polish | Infra | `[x]` Complete | 1 |
 | 9 | Phase 2 Self-Healing | ML | `[ ]` Foundation built | 2-3 |
