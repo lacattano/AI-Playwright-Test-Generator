@@ -195,29 +195,32 @@ The revised order collapses from 12 items to **10 outstanding items** across 4 t
 ### 8. Phase 5 — Automated Evaluation Harness
 
 **Priority:** High (for ML Engineering portfolio)  
-**Status:** `[ ]` Not started  
+**Status:** `[x]` Core Complete (Phases 1-5)  
 **Impact:** Regression protection for prompt/model/resolver changes + quantitative baseline for dual-tier comparison
 
 **Problem:** With 800+ tests and complex resolver logic, prompt changes or model swaps can silently degrade output quality. No quantitative quality gate exists.
 
-**Implementation notes:**
-- [ ] Define frozen dataset: 10-15 user stories covering saucedemo + automationexercise
-- [ ] Expand dataset: include multi-page mock documents (PDFs, HTML docs) for RAG-ready evaluation
-- [ ] Record baselines: expected placeholder resolutions, test pass rates
-- [ ] Build harness script: `scripts/eval/eval_harness.py`
-- [ ] Metrics to track:
-  - Placeholder resolution accuracy (% correct matches)
-  - Generated test pass rate (% tests passing on first run)
-  - False positive rate (% tests passing with wrong assertions)
-  - Skeleton generation completeness (% criteria with placeholders)
-- [ ] **Dual-Tier Awareness:** Harness must support Free vs Paid tier configurations
-  - Free tier: single-model, sequential pipeline (current architecture)
-  - Paid tier: multi-agent, LangGraph state machine (Phase 1 architecture)
-  - Compare: Monolithic vs Multi-Agent quality metrics side-by-side
-- [ ] Run as quality gate before commits affecting pipeline
-- [ ] Add to CI as optional job (gate, not break)
+**What's done (Phases 1-5):**
+- [x] Frozen dataset: 4 stories across 4 demo sites (saucedemo, automationexercise, demoqa, theinternet)
+- [x] Golden answer keys: `scripts/eval/dataset/` — 43 golden placeholders with tolerance_selectors
+- [x] Pipeline captures: `scripts/eval/captures/` — generated code from all 4 sites
+- [x] `scripts/eval/eval_metrics.py` — metric computation (accuracy, pass rate, FP rate, skeleton completeness)
+- [x] `scripts/eval/golden_validator.py` — code parsing, golden key loading, validation engine
+- [x] `scripts/eval/eval_runner.py` — orchestration, static + full modes, SQLite persistence
+- [x] `scripts/eval/eval_harness.py` — standalone CLI: `run`, `baseline`, `compare`, `dataset`
+- [x] `scripts/eval/ci_summary.py` — CI markdown summary generator
+- [x] `.github/workflows/eval-harness.yml` — `workflow_dispatch` CI job (manual trigger)
+- [x] `scripts/eval/README.md` — usage guide
+- [x] SQLite: new `eval_runs` table in `evidence/run_results.sqlite` with history tracking
+- [x] Unit tests: 60 tests across 3 test files, 100% pass
+- [x] Baseline accuracy: **79.1%** (34/43 placeholders correct)
+- [x] Quality gates: ruff clean, mypy clean, 1366/1367 main tests pass (0 regressions)
 
-**Estimated sessions:** 2-3
+**Deferred (future sessions):**
+- [ ] Expand dataset: multi-page mock documents (PDFs, HTML docs) for RAG-ready evaluation
+- [ ] **Dual-Tier Awareness:** Harness must support Free vs Paid tier configurations (Track B)
+
+**Estimated sessions:** 2-3 (2 used)
 
 ---
 
@@ -387,6 +390,27 @@ The revised order collapses from 12 items to **10 outstanding items** across 4 t
 
 ---
 
+## Future Considerations
+
+Items worth investigating but not on the active roadmap.
+
+### FC-01 — HTTP QUERY Method (RFC 10008) for Test Search API
+
+**Status:** `[ ]` Future consideration  
+**Date noted:** 2026-07-15  
+**Ref:** https://www.rfc-editor.org/rfc/rfc10008 (June 2026)
+
+RFC 10008 defines the HTTP QUERY method: safe, idempotent, cacheable requests with a body.
+Currently not applicable — our project uses local Python → SQLite, no HTTP API layer.
+
+**Becomes relevant if:** We expose a REST API for searching/filtering test history or eval results.
+QUERY would be the correct method for "search tests with complex filters" — avoids URL query param
+limits, is cacheable, and safe for retries.
+
+**Trigger to revisit:** Any feature that adds an HTTP endpoint for querying test/run data.
+
+---
+
 ## Summary Checklist
 
 | # | Item | Tier | Status | Est. Sessions |
@@ -398,7 +422,7 @@ The revised order collapses from 12 items to **10 outstanding items** across 4 t
 | 5 | AI-026 CLI Persist finish | Feature | `[x]` Step 7 verified | 0-1 |
 | 6 | AI-012 SQLite Persistence | Infra | `[x]` Complete | 2 |
 | 7 | Phase 4 Docker polish | Infra | `[x]` Complete | 1 |
-| 8 | Phase 5 Eval Harness | Infra | `[ ]` Open (depends on AI-012) | 2-3 |
+| 8 | Phase 5 Eval Harness | Infra | `[x]` Complete | 2-3 |
 | 9 | Phase 2 Self-Healing | ML | `[ ]` Foundation built | 2-3 |
 | 10 | Phase 3 RAG | ML | `[ ]` Not started (depends on AI-012) | 3-4 |
 | 11 | Phase 1 Multi-Agent | ML | `[ ]` High (promoted) | 3-4 |
@@ -425,6 +449,9 @@ Update this section after each session:
 | 2026-06-12 | AI-011 Run History Chart | Shipped complete feature: `src/run_history_chart.py` (10 tests, Plotly stacked bar + pass-rate line), `src/run_history_cli.py` (19 tests, ASCII tables), Streamlit Run History tab in EvidenceViewer with scope selector + flaky test panel + run comparison, CLI `render_run_history_summary()` wired into `cli/pipeline_runner.py` (2 call sites), `run_results/` copy added to `src/export_service.py` exports. 29 new tests, 1166 total pass, zero regressions. |
 | 2026-06-14 | Research Session | Verified Gemma 4 models (released April 2026, Apache 2.0). Confirmed LangGraph for multi-agent orchestration. Researched RAG patterns (Milvus/Weaviate). Updated ROADMAP with dual-tier eval harness metrics, verified model specs for Phase 1 agents, promoted Phase 1 to High priority. Key finding: DiffusionGemma weaker on reasoning (MMLU Pro 77.6% vs 82.6%) — use standard Gemma 4 26B-A4B MoE. |
 | 2026-06-14 | AI-012 SQLite Persistence (design) | Draft spec complete: FEATURE_SPEC_sqlite_persistence.md. 4 phases (core module, API compat, export integration, query interface). 28 tests planned. Zero new deps (sqlite3 stdlib). Graph compilation for project_sanitizer.py (CSV→SQLite with recursive CTEs). Added to Tier 3 Infra before Phase 5 Eval Harness. Neo4j research: GPL v3 copyleft risk — recommended Apache AGE for dev-time graph tooling instead. |
+| 2026-07-13 | Phase 5 Eval Harness (dataset + metrics) | Grilling session: defined design decisions (two-track, 4 sites, JSON golden keys). Spec written. Captured pipeline outputs for 4 sites. Golden keys hand-validated and committed. Baseline accuracy: 79.1% (34/43). `eval_metrics.py` + `golden_validator.py` with 48 tests. |
+| 2026-07-15 | Phase 5 Eval Harness (runner + CLI) | `eval_runner.py` — static validation, test execution, SQLite persistence. `eval_harness.py` — standalone CLI with 4 subcommands (run, baseline, compare, dataset). Both --static and --full modes. 60 eval tests, 1366 main tests pass. ruff clean, mypy clean. HTTP QUERY (RFC 10008) noted as future consideration FC-01. |
+| 2026-07-15 | Phase 5 Eval Harness (CI integration) | `.github/workflows/eval-harness.yml` — workflow_dispatch job with mode + min_accuracy inputs. `ci_summary.py` — markdown summary generator. `scripts/eval/README.md` — usage guide. Phase 5 spec complete. |
 
 ---
 
@@ -439,4 +466,4 @@ Update this section after each session:
 
 ---
 
-*Last updated: 2026-06-14*
+*Last updated: 2026-07-15*
