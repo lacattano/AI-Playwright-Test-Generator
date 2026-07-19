@@ -26,7 +26,7 @@ Three items from the original plan are already shipped or fixed:
 - **AI-023 Locator Repair** — Shipped 2026-05-23 (all 4 sessions)
 - **B-013 Journey stops short** — Fixed by AI-027 Session 4
 
-The revised order collapses from 12 items to **10 outstanding items** across 4 tiers.
+The revised order collapses from 12 items to **11 outstanding items** across 4 tiers.
 
 ---
 
@@ -147,9 +147,64 @@ The revised order collapses from 12 items to **10 outstanding items** across 4 t
 
 ---
 
+### 6. AI-028 — Evidence Search, Filter & Export
+
+**Priority:** Medium  
+**Status:** `[ ]` Not started  
+**Impact:** Export-first approach — users can take their evidence data anywhere (CSV for Excel/Tableau, NDJSON for Splunk/jq, JUnit XML for CI/CD). Search and filter are convenience layers on top of the same index.  
+**Spec:** `docs/specs/FEATURE_SPEC_AI028_evidence_search.md`
+
+**Problem:** Evidence data is locked inside the tool (`.evidence.json` sidecars + `run_results.sqlite`). Users can't open results in their own tools, and even within the tool, finding specific tests requires scrolling a flat dropdown of 100+ items.
+
+**What's needed:**
+- [ ] `src/evidence_index.py` — `EvidenceIndex` class that indexes sidecar metadata into SQLite (`evidence_index` table)
+- [ ] `src/evidence_export.py` — CSV, NDJSON, and JUnit XML exporters, all respecting the same filter parameters
+- [ ] Streamlit download buttons for all three export formats (full dataset or filtered subset)
+- [ ] Full-text search via SQL `LIKE` across test name, condition ref, story ref, URL, and step labels
+- [ ] Faceted filters: status (passed/failed), URL domain, condition ref prefix
+- [ ] Replace flat `st.selectbox` in `EvidenceViewer._render_debug_export()` with search bar + filter row + results list
+- [ ] CLI: `python -m cli.evidence_cli search --query "dress"` and `export --format csv --output evidence.csv`
+- [ ] 30+ unit tests (`test_evidence_index.py` + `test_evidence_export.py`)
+
+**Phases:**
+1. Evidence index module + SQLite schema (no UI)
+2. Export formats — CSV, NDJSON, JUnit XML (no UI)
+3. Search UI + export download buttons + results list
+4. CLI integration (search + export subcommands)
+
+**Dependencies:** AI-012 (SQLite Persistence, shipped) — uses existing `evidence/run_results.sqlite`
+
+**Estimated sessions:** 1-2
+
+---
+
 ## Tier 3 — Infrastructure
 
-### 6. AI-012 — SQLite Persistence Layer
+### 6. AI-029 — Workspace Isolation & Storage Abstraction
+
+**Priority:** Medium  
+**Status:** `[ ]` Not started  
+**Impact:** Centralises all storage path construction through `src/storage.py` and adds workspace isolation (`--workspace` flag). Prevents painful rewrites when adding multi-tenancy (SaaS) or cloud storage (S3). Pure refactoring — no feature behavior changes.  
+**Spec:** `docs/specs/FEATURE_SPEC_AI029_workspace_storage.md`
+
+**What's needed:**
+- [ ] `src/storage.py` — `StorageBackend` Protocol, `LocalStorageBackend`, singleton with `get_storage()` / `init_storage()` / `reset_storage()`
+- [ ] Workspace-aware paths: `default` workspace maps to repo root (backwards compat); named workspaces → subdirectory
+- [ ] Migrate ~15 files from hardcoded `Path("generated_tests")` / `Path("evidence")` to `get_storage()` calls
+- [ ] `SQLitePersistence` already accepts `db_path` — just pass `get_storage().db_path()`
+- [ ] CLI: `--workspace` flag; Streamlit: `WORKSPACE` env var
+- [ ] CI gate: `rg 'Path\("generated_tests"\)' -- '*.py'` must return zero results
+- [ ] 15+ unit tests for `src/storage.py`
+
+**Dependencies:** None — pure refactoring, no feature dependencies.
+
+**Why now:** Costs ~2 hours. Deferring to after multi-tenancy is built means ETL-ing customer data to new directory layouts.
+
+**Estimated sessions:** 1
+
+---
+
+### 7. AI-012 — SQLite Persistence Layer
 
 **Priority:** Medium  
 **Status:** `[x]` verified complete — 2026-06-16  
@@ -172,7 +227,7 @@ The revised order collapses from 12 items to **10 outstanding items** across 4 t
 
 ---
 
-### 7. Phase 4 — Docker Improvements
+### 8. Phase 4 — Docker Improvements
 
 **Priority**: Medium  
 **Status**: `[x]` Complete  
@@ -192,7 +247,7 @@ The revised order collapses from 12 items to **10 outstanding items** across 4 t
 
 ---
 
-### 8. Phase 5 — Automated Evaluation Harness
+### 9. Phase 5 — Automated Evaluation Harness
 
 **Priority:** High (for ML Engineering portfolio)  
 **Status:** `[x]` Core Complete (Phases 1-5)  
@@ -226,7 +281,7 @@ The revised order collapses from 12 items to **10 outstanding items** across 4 t
 
 ## Tier 4 — ML Engineering Roadmap
 
-### 9. Phase 2 — Full Self-Healing Reflection Loops
+### 10. Phase 2 — Full Self-Healing Reflection Loops
 
 **Priority:** Medium (portfolio)  
 **Status:** `[ ]` Foundation exists (AI-023 shipped)  
@@ -249,7 +304,7 @@ The revised order collapses from 12 items to **10 outstanding items** across 4 t
 
 ---
 
-### 10. Phase 3 — Enterprise RAG
+### 11. Phase 3 — Enterprise RAG
 
 **Priority:** Medium (portfolio)  
 **Status:** `[ ]` Not started  
@@ -275,7 +330,7 @@ The revised order collapses from 12 items to **10 outstanding items** across 4 t
 
 ---
 
-### 10. Phase 1 — Multi-Agent Architecture (LangGraph) with Model-Agnostic Providers
+### 12. Phase 1 — Multi-Agent Architecture (LangGraph) with Model-Agnostic Providers
 
 **Priority:** High (promoted from Low)  
 **Status:** `[ ]` Not started  
@@ -390,6 +445,72 @@ The revised order collapses from 12 items to **10 outstanding items** across 4 t
 
 ---
 
+## Tier 5 — Commercialization
+
+Items required to sell the tool publicly (marketplace, SaaS, CI/CD integration).
+
+### 13. Phase 6 — SaaS Deployment
+
+**Priority:** Medium (deferred)  
+**Status:** `[ ]` Not started  
+**Impact:** Enables hosted SaaS offering — users sign up, log in, and generate tests in their browser without installing anything.  
+
+**What's needed:**
+- [ ] Production Streamlit deployment (gunicorn + Nginx, or Streamlit Community Cloud Pro)
+- [ ] User auth (OAuth: GitHub/Google, or email/password via Supabase Auth)
+- [ ] Per-user isolation — each user gets their own workspace (AI-029 provides the foundation)
+- [ ] S3-backed storage for generated tests + evidence (AI-029 `StorageBackend` Protocol enables this)
+- [ ] Usage metering — track test runs, LLM tokens consumed, storage per user
+- [ ] License key management — generate, validate, expire keys; tier enforcement (Free vs Pro)
+- [ ] HTTPS, session affinity, rate limiting
+
+**Dependencies:** AI-029 (Workspace & Storage) — the storage abstraction and workspace concept are prerequisites.
+
+**Estimated sessions:** 3-4
+
+---
+
+### 14. Phase 7 — CI/CD Integration
+
+**Priority:** Medium-High (deferred)  
+**Status:** `[ ]` Not started  
+**Impact:** Enterprise adoption driver — teams don't run tools manually; they want automated test generation in their CI pipeline.  
+
+**What's needed:**
+- [ ] GitHub Action: `ai-playwright/test-generator@v1` — generate + run tests on PR, post results
+- [ ] GitLab CI template — same for GitLab users
+- [ ] PR comment with generated test summary: pass/fail counts, coverage heatmap, flaky test markers
+- [ ] JUnit XML consumption — AI-028 export feeds this natively
+- [ ] Configurable: generate-only mode, generate-and-run mode, run-existing mode
+- [ ] Cache generated tests across CI runs (avoid regenerating unchanged stories)
+
+**Dependencies:** AI-028 (Evidence Export) for JUnit XML; AI-029 (Workspace) for CI workspace isolation.
+
+**Estimated sessions:** 2-3
+
+---
+
+### 15. Phase 8 — GTM Assets
+
+**Priority:** Medium (deferred)  
+**Status:** `[ ]` Not started  
+**Impact:** Everything customers see before they buy. Landing page, docs, demo, marketplace listings.  
+
+**What's needed:**
+- [ ] Public docs site (MkDocs or Docusaurus) — quickstart, API reference, deployment guides, examples
+- [ ] Landing page with: product screenshots, feature list, pricing tiers, "Get Started" CTA
+- [ ] Demo video (2-3 minutes) — record a real session: story → generate → HTML evidence
+- [ ] Interactive sandbox — try the tool in-browser without installing (limited to 3 test generations)
+- [ ] AWS Marketplace listing — Docker image / AMI, usage-based billing integration
+- [ ] PyPI package — `pip install ai-playwright-generator` (CLI only, free tier)
+- [ ] Case study / testimonial — one real user story to establish credibility
+
+**Dependencies:** Phase 6 (SaaS) for sandbox; AI-028 (Export) for demo footage of evidence viewer.
+
+**Estimated sessions:** 2-3
+
+---
+
 ## Future Considerations
 
 Items worth investigating but not on the active roadmap.
@@ -420,14 +541,19 @@ limits, is cacheable, and safe for retries.
 | 3 | AI-010 POM Toggle | Feature | `[x]` All phases complete | 2 |
 | 4 | AI-011 Run History | Feature | `[x]` Complete | 2 |
 | 5 | AI-026 CLI Persist finish | Feature | `[x]` Step 7 verified | 0-1 |
-| 6 | AI-012 SQLite Persistence | Infra | `[x]` Complete | 2 |
-| 7 | Phase 4 Docker polish | Infra | `[x]` Complete | 1 |
-| 8 | Phase 5 Eval Harness | Infra | `[x]` Complete | 2-3 |
-| 9 | Phase 2 Self-Healing | ML | `[ ]` Foundation built | 2-3 |
-| 10 | Phase 3 RAG | ML | `[ ]` Not started (depends on AI-012) | 3-4 |
-| 11 | Phase 1 Multi-Agent | ML | `[ ]` High (promoted) | 3-4 |
+| 6 | AI-028 Evidence Search & Export | Feature | `[ ]` Not started | 1-2 |
+| 7 | AI-029 Workspace & Storage | Infra | `[ ]` Not started | 1 |
+| 8 | AI-012 SQLite Persistence | Infra | `[x]` Complete | 2 |
+| 9 | Phase 4 Docker polish | Infra | `[x]` Complete | 1 |
+| 10 | Phase 5 Eval Harness | Infra | `[x]` Complete | 2-3 |
+| 11 | Phase 2 Self-Healing | ML | `[ ]` Foundation built | 2-3 |
+| 12 | Phase 3 RAG | ML | `[ ]` Not started (depends on AI-012) | 3-4 |
+| 13 | Phase 1 Multi-Agent | ML | `[ ]` High (promoted) | 3-4 |
+| 14 | Phase 6 SaaS Deployment | Commercial | `[ ]` Not started | 3-4 |
+| 15 | Phase 7 CI/CD Integration | Commercial | `[ ]` Not started | 2-3 |
+| 16 | Phase 8 GTM Assets | Commercial | `[ ]` Not started | 2-3 |
 
-**Total estimated sessions:** 18-27 (+2 for AI-012)
+**Total estimated sessions:** 27-40 (+2 for AI-012)
 
 ---
 
