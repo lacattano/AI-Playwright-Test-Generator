@@ -377,10 +377,10 @@ appear on multiple pages. The only precise page-identity check is `expect(page).
 - [x] LLM reviewer with structured JSON response parsing
 - [x] Four repair strategies: replace_locator, add_navigation, add_wait, skip_test
 - [x] Streamlit "🩹 Self-Heal Failed Tests" button + healing results display
+- [x] CLI: `self_heal_cli()` + "Self-Heal Failed Tests" menu item
 - [x] 28 unit tests (extract_test_function, format_elements, parse_response, apply_patch, heal integration)
 
 **What's needed:**
-- [ ] CLI integration: `python -m cli.main --self-heal`
 - [ ] Merge with interactive locator repair fallback (Phase 2b)
 - [ ] Reviewer agent that pre-screens fixable vs. unfixable before LLM call (cost optimization)
 
