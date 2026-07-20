@@ -150,7 +150,7 @@ The revised order collapses from 12 items to **11 outstanding items** across 4 t
 ### 6. AI-028 — Evidence Search, Filter & Export
 
 **Priority:** Medium  
-**Status:** `[ ]` Not started  
+**Status:** `[x]` Shipped 2026-07-20  
 **Impact:** Export-first approach — users can take their evidence data anywhere (CSV for Excel/Tableau, NDJSON for Splunk/jq, JUnit XML for CI/CD). Search and filter are convenience layers on top of the same index.  
 **Spec:** `docs/specs/FEATURE_SPEC_AI028_evidence_search.md`
 
@@ -183,7 +183,7 @@ The revised order collapses from 12 items to **11 outstanding items** across 4 t
 ### 6. AI-029 — Workspace Isolation & Storage Abstraction
 
 **Priority:** Medium  
-**Status:** `[ ]` Not started  
+**Status:** `[x]` Shipped 2026-07-20  
 **Impact:** Centralises all storage path construction through `src/storage.py` and adds workspace isolation (`--workspace` flag). Prevents painful rewrites when adding multi-tenancy (SaaS) or cloud storage (S3). Pure refactoring — no feature behavior changes.  
 **Spec:** `docs/specs/FEATURE_SPEC_AI029_workspace_storage.md`
 
@@ -541,8 +541,8 @@ limits, is cacheable, and safe for retries.
 | 3 | AI-010 POM Toggle | Feature | `[x]` All phases complete | 2 |
 | 4 | AI-011 Run History | Feature | `[x]` Complete | 2 |
 | 5 | AI-026 CLI Persist finish | Feature | `[x]` Step 7 verified | 0-1 |
-| 6 | AI-028 Evidence Search & Export | Feature | `[ ]` Not started | 1-2 |
-| 7 | AI-029 Workspace & Storage | Infra | `[ ]` Not started | 1 |
+| 6 | AI-028 Evidence Search & Export | Feature | `[x]` Shipped 2026-07-20 | 2 |
+| 7 | AI-029 Workspace & Storage | Infra | `[x]` Shipped 2026-07-20 | 1 |
 | 8 | AI-012 SQLite Persistence | Infra | `[x]` Complete | 2 |
 | 9 | Phase 4 Docker polish | Infra | `[x]` Complete | 1 |
 | 10 | Phase 5 Eval Harness | Infra | `[x]` Complete | 2-3 |
@@ -578,6 +578,8 @@ Update this section after each session:
 | 2026-07-13 | Phase 5 Eval Harness (dataset + metrics) | Grilling session: defined design decisions (two-track, 4 sites, JSON golden keys). Spec written. Captured pipeline outputs for 4 sites. Golden keys hand-validated and committed. Baseline accuracy: 79.1% (34/43). `eval_metrics.py` + `golden_validator.py` with 48 tests. |
 | 2026-07-15 | Phase 5 Eval Harness (runner + CLI) | `eval_runner.py` — static validation, test execution, SQLite persistence. `eval_harness.py` — standalone CLI with 4 subcommands (run, baseline, compare, dataset). Both --static and --full modes. 60 eval tests, 1366 main tests pass. ruff clean, mypy clean. HTTP QUERY (RFC 10008) noted as future consideration FC-01. |
 | 2026-07-15 | Phase 5 Eval Harness (CI integration) | `.github/workflows/eval-harness.yml` — workflow_dispatch job with mode + min_accuracy inputs. `ci_summary.py` — markdown summary generator. `scripts/eval/README.md` — usage guide. Phase 5 spec complete. |
+| 2026-07-19 | AI-029 Workspace & Storage | Shipped `src/storage.py` — StorageBackend Protocol + LocalStorageBackend + singleton. Migrated 12 consumer files from hardcoded Path("generated_tests")/Path("evidence") to get_storage(). Default workspace preserves repo-root layout. Streamlit init_storage() at startup. CI gates: zero hardcoded path hits. 30 new tests, 1457 total. |
+| 2026-07-20 | AI-028 Evidence Search, Filter & Export | Shipped all 4 phases: EvidenceIndex (SQLite-backed metadata index with incremental mtime refresh, 42 tests), evidence_export.py (CSV/NDJSON/JUnit XML, 31 tests), UI (search bar + filter row + download buttons replacing flat selectbox), CLI (search/detail/rerun/export subcommands with timestamps and step-level inspection). 73 new tests, 1530 total. |
 
 ---
 
@@ -592,4 +594,4 @@ Update this section after each session:
 
 ---
 
-*Last updated: 2026-07-15*
+*Last updated: 2026-07-20*
