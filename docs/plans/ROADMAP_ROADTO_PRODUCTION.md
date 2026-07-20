@@ -363,7 +363,7 @@ appear on multiple pages. The only precise page-identity check is `expect(page).
 ### 10. Phase 2 — Full Self-Healing Reflection Loops
 
 **Priority:** Medium (portfolio)  
-**Status:** `[ ]` Foundation exists (AI-023 shipped)  
+**Status:** `[~]` Core loop shipped 2026-07-20 (Streamlit integration done). Iterative reflection loop remaining.  
 **Impact:** "Self-healing AI automation" marketing message
 
 **Foundation already built:**
@@ -372,12 +372,17 @@ appear on multiple pages. The only precise page-identity check is `expect(page).
 - `src/locator_repair.py` — applies locator patches
 - Three-pass resolver with fallback chain
 
+**What's done:**
+- [x] `src/self_healing.py` — SelfHealingRunner, HealingReport, AppliedPatch
+- [x] LLM reviewer with structured JSON response parsing
+- [x] Four repair strategies: replace_locator, add_navigation, add_wait, skip_test
+- [x] Streamlit "🩹 Self-Heal Failed Tests" button + healing results display
+- [x] 28 unit tests (extract_test_function, format_elements, parse_response, apply_patch, heal integration)
+
 **What's needed:**
-- [ ] Full iterative loop: run → parse stderr → route to reviewer agent → fix → re-run
-- [ ] Max iterations ceiling (configurable, default 3)
-- [ ] Reviewer agent that classifies fixable vs. unfixable failures
-- [ ] Integration with `src/pytest_output_parser.py`
-- [ ] Write spec: `docs/specs/FEATURE_SPEC_phase2_self_healing.md`
+- [ ] CLI integration: `python -m cli.main --self-heal`
+- [ ] Merge with interactive locator repair fallback (Phase 2b)
+- [ ] Reviewer agent that pre-screens fixable vs. unfixable before LLM call (cost optimization)
 
 **Estimated sessions:** 2-3
 
@@ -627,7 +632,7 @@ limits, is cacheable, and safe for retries.
 | 8 | AI-012 SQLite Persistence | Infra | `[x]` Complete | 2 |
 | 9 | Phase 4 Docker polish | Infra | `[x]` Complete | 1 |
 | 10 | Phase 5 Eval Harness | Infra | `[x]` Complete | 2-3 |
-| 11 | Phase 2 Self-Healing | ML | `[ ]` Foundation built | 2-3 |
+| 11 | Phase 2 Self-Healing | ML | `[~]` Core shipped | 2-3 |
 | 12 | Phase 3 RAG | ML | `[ ]` Not started (depends on AI-012) | 3-4 |
 | 13 | Phase 1 Multi-Agent | ML | `[ ]` High (promoted) | 3-4 |
 | 14 | Phase 6 SaaS Deployment | Commercial | `[ ]` Not started | 3-4 |
