@@ -81,6 +81,49 @@ The revised order collapses from 12 items to **11 outstanding items** across 4 t
 
 ---
 
+### 3. B-022 — State-Dependent Page Scraping
+
+**Priority:** High  
+**Status:** `[x]` Shipped 2026-07-20 — cart-seeding upgrade fix + dynamic element discovery  
+**Impact:** Cart/checkout/order assertions silently corrupt — tests either skip or resolve to empty-state selectors  
+**Backlog ref:** `## ✅ Closed Bugs` → B-022
+
+**Problem:** `PageScraper` opens a fresh browser context per URL. Pages like `/view_cart` show
+different DOM depending on session state. Elements that only appear with items in cart
+("Proceed to checkout", cart table rows, quantity columns) are absent from scraped data.
+Tests navigating directly to `/view_cart` either skip or resolve assertions to `#empty_cart`.
+
+**What was done:**
+- [x] `_upgrade_stateful_pages()` now always prefers cart-seeded data over static scrapes for `/view_cart` and `/checkout` pages (was: only replaced if more elements, but empty cart pages often have more promotional elements)
+- [x] `CartSeedingScraper` uses dynamic element discovery via `_discover_selector()` instead of hardcoded selectors that don't match all sites
+- [x] Product URL detection: scrapes category/product URLs from existing data instead of always using `/products`
+- [x] UAT verified: 13/13 tests pass (was: 1 fail + 3 skips)
+
+**Verification:** 13 passed, 0 failed on automationexercise.com UAT
+
+**Estimated sessions:** 1-2  
+**Actual sessions:** 1
+
+---
+
+### 4. B-023 — Cart Modal Intercepts Clicks During Journey Discovery
+
+**Priority:** Low  
+**Status:** `[x]` Shipped 2026-07-20 — `_dismiss_modals()` added to JourneyScraper  
+**Impact:** Journey scraper retry noise adds ~20s to UAT runtime. Tests still pass.  
+**Backlog ref:** `## 🔴 Open Bugs` → B-023
+
+**Problem:** After adding a product to cart, the "Added to cart" confirmation modal (`#cartModal`)
+blocks pointer events on the "Cart" header link during journey discovery. The scraper retries
+until timeout (~10s) then navigates directly.
+
+**Fix:** Dismiss confirmation modals before clicking navigation links in journey discovery,
+similar to how `CartSeedingScraper` already handles the "Continue Shopping" dismiss.
+
+**Estimated sessions:** 0.5
+
+---
+
 ## Tier 2 — Feature Completion
 
 ### 3. AI-010 — Page Object Model Generation Toggle
@@ -175,6 +218,42 @@ The revised order collapses from 12 items to **11 outstanding items** across 4 t
 **Dependencies:** AI-012 (SQLite Persistence, shipped) — uses existing `evidence/run_results.sqlite`
 
 **Estimated sessions:** 1-2
+
+---
+
+### 7. URL-Based Assertions for Page-State Verification
+
+**Priority:** Medium
+**Status:** `[ ]` Not started
+**Impact:** Eliminates skipped tests caused by unresolvable page-state placeholders like "home page visible"
+**Backlog ref:** B-021
+**Spec:** `docs/specs/FEATURE_SPEC_URL_ASSERT.md`
+
+**Problem:** When a user story includes page-level assertions ("home page is visible",
+"dress products page is loaded"), the `PageStateAssertStrategy` correctly detects these
+as non-element descriptions but rejects all DOM candidates, producing `pytest.skip()`.
+DOM-element assertions are unreliable for page identity — headings like "AutomationExercise"
+appear on multiple pages. The only precise page-identity check is `expect(page).to_have_url(...)`.
+
+**What's needed:**
+- [ ] `PageStateAssertStrategy` returns URL-resolution signal instead of `False`
+- [ ] `IntentMatcher` propagates URL signal through match chain
+- [ ] `PlaceholderOrchestrator` branches on URL signal → calls `resolve_url()` → emits `to_have_url()` code
+- [ ] `PlaceholderResolver.resolve_url()` extended keyword mapping (home page → base URL, products page → /products, etc.)
+- [ ] Generated code: `expect(page).to_have_url("<url>")` instead of `expect(page.locator(...))`
+- [ ] Fallback to `pytest.skip()` when URL resolution fails (unknown page reference)
+- [ ] 20+ unit tests across intent_matcher, placeholder_resolver, placeholder_orchestrator
+- [ ] No regression on existing element-level ASSERT resolution
+
+**Phases:**
+1. Signal propagation — `PageStateAssertStrategy` → `IntentMatcher` → orchestrator
+2. URL resolution + code generation
+3. Extended `resolve_url()` keyword mapping
+4. Unit tests + UAT validation on automationexercise.com
+
+**Dependencies:** B-014 ASSERT scoring (shipped), B-014 step-context resolution (draft) — step context feeds `known_urls` to `resolve_url()`
+
+**Estimated sessions:** 1
 
 ---
 
@@ -538,9 +617,11 @@ limits, is cacheable, and safe for retries.
 |---|------|------|--------|---------------|
 | 1 | B-014 ASSERT resolution | Bug | `[x]` Shipped | 1 |
 | 2 | B-015 Journey element | Bug | `[x]` Shipped | 1 |
-| 3 | AI-010 POM Toggle | Feature | `[x]` All phases complete | 2 |
-| 4 | AI-011 Run History | Feature | `[x]` Complete | 2 |
-| 5 | AI-026 CLI Persist finish | Feature | `[x]` Step 7 verified | 0-1 |
+| 3 | B-022 State-dependent scraping | Bug | `[x]` Shipped 2026-07-20 | 1-2 |
+| 4 | B-023 Cart modal interception | Bug | `[x]` Shipped 2026-07-20 | 0.5 |
+| 5 | AI-010 POM Toggle | Feature | `[x]` All phases complete | 2 |
+| 5 | AI-011 Run History | Feature | `[x]` Complete | 2 |
+| 6 | AI-026 CLI Persist finish | Feature | `[x]` Step 7 verified | 0-1 |
 | 6 | AI-028 Evidence Search & Export | Feature | `[x]` Shipped 2026-07-20 | 2 |
 | 7 | AI-029 Workspace & Storage | Infra | `[x]` Shipped 2026-07-20 | 1 |
 | 8 | AI-012 SQLite Persistence | Infra | `[x]` Complete | 2 |
@@ -552,8 +633,11 @@ limits, is cacheable, and safe for retries.
 | 14 | Phase 6 SaaS Deployment | Commercial | `[ ]` Not started | 3-4 |
 | 15 | Phase 7 CI/CD Integration | Commercial | `[ ]` Not started | 2-3 |
 | 16 | Phase 8 GTM Assets | Commercial | `[ ]` Not started | 2-3 |
+| 17 | URL-Based Assertions (B-021) | Feature | `[x]` Shipped 2026-07-20 | 1 |
+| 18 | State-Dep. Scraping (B-022) | Bug | `[x]` Shipped 2026-07-20 | 1 |
+| 19 | Cart Modal (B-023) | Bug | `[x]` Shipped 2026-07-20 | 0.5 |
 
-**Total estimated sessions:** 27-40 (+2 for AI-012)
+**Total estimated sessions:** 29-43 (+2 for AI-012)
 
 ---
 
