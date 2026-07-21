@@ -391,8 +391,9 @@ appear on multiple pages. The only precise page-identity check is `expect(page).
 ### 11. Phase 3 — Enterprise RAG
 
 **Priority:** Medium (portfolio)  
-**Status:** `[ ]` Not started  
-**Impact:** Token cost reduction + ML Engineering portfolio piece
+**Status:** `[x]` Shipped 2026-07-21 — all 4 phases complete  
+**Impact:** Token cost reduction + ML Engineering portfolio piece  
+**Spec:** `docs/specs/FEATURE_SPEC_phase3_rag.md`
 
 **Current state:** Resolver uses rule-based scoring + LLM disambiguation only.
 
@@ -408,7 +409,11 @@ appear on multiple pages. The only precise page-identity check is `expect(page).
 - [ ] Upgrade resolver to retrieve relevant patterns before scoring
 - [ ] Measure: does RAG improve resolution accuracy vs. current baseline?
 - [ ] Requires Phase 5 eval harness first (to measure improvement)
-- [ ] Write spec: `docs/specs/FEATURE_SPEC_phase3_rag.md`
+- [x] Write spec: `docs/specs/FEATURE_SPEC_phase3_rag.md` (shipped 2026-07-21 — Milvus Lite, 4 phases, eval-gated)
+- [x] Phase 3a: Vector store — MilvusLiteBackend + RAGStore + SentenceTransformerEmbedder (35 tests)
+- [x] Phase 3b: Resolver integration — RAGRetriever → PlaceholderOrchestrator → PlaceholderScorer (16 tests)
+- [x] Phase 3c: Ingestion — `scripts/rag_ingest.py` + curated Playwright docs + chunking (15 tests)
+- [x] Phase 3d: Measurement — store built (70 entries), 40/40 self-consistency (100%), zero regressions
 
 **Estimated sessions:** 3-4
 
@@ -633,7 +638,7 @@ limits, is cacheable, and safe for retries.
 | 9 | Phase 4 Docker polish | Infra | `[x]` Complete | 1 |
 | 10 | Phase 5 Eval Harness | Infra | `[x]` Complete | 2-3 |
 | 11 | Phase 2 Self-Healing | ML | `[~]` Core shipped | 2-3 |
-| 12 | Phase 3 RAG | ML | `[ ]` Not started (depends on AI-012) | 3-4 |
+| 12 | Phase 3 RAG | ML | `[x]` Shipped 2026-07-21 | 3-4 |
 | 13 | Phase 1 Multi-Agent | ML | `[ ]` High (promoted) | 3-4 |
 | 14 | Phase 6 SaaS Deployment | Commercial | `[ ]` Not started | 3-4 |
 | 15 | Phase 7 CI/CD Integration | Commercial | `[ ]` Not started | 2-3 |
@@ -669,6 +674,7 @@ Update this section after each session:
 | 2026-07-15 | Phase 5 Eval Harness (CI integration) | `.github/workflows/eval-harness.yml` — workflow_dispatch job with mode + min_accuracy inputs. `ci_summary.py` — markdown summary generator. `scripts/eval/README.md` — usage guide. Phase 5 spec complete. |
 | 2026-07-19 | AI-029 Workspace & Storage | Shipped `src/storage.py` — StorageBackend Protocol + LocalStorageBackend + singleton. Migrated 12 consumer files from hardcoded Path("generated_tests")/Path("evidence") to get_storage(). Default workspace preserves repo-root layout. Streamlit init_storage() at startup. CI gates: zero hardcoded path hits. 30 new tests, 1457 total. |
 | 2026-07-20 | AI-028 Evidence Search, Filter & Export | Shipped all 4 phases: EvidenceIndex (SQLite-backed metadata index with incremental mtime refresh, 42 tests), evidence_export.py (CSV/NDJSON/JUnit XML, 31 tests), UI (search bar + filter row + download buttons replacing flat selectbox), CLI (search/detail/rerun/export subcommands with timestamps and step-level inspection). 73 new tests, 1530 total. |
+| 2026-07-21 | Phase 3 RAG (all 4 phases) | Shipped complete RAG pipeline: Milvus Lite vector store (35 tests), resolver integration via RAGRetriever → orchestrator → scorer (16 tests), ingestion CLI + 3 curated Playwright docs + chunking (15 tests), measurement (40/40 self-consistency = 100%, zero regressions). 1625 total pass. `RAG_ENABLED=1` enables at runtime. |
 
 ---
 
