@@ -636,7 +636,7 @@ limits, is cacheable, and safe for retries.
 | 7 | AI-029 Workspace & Storage | Infra | `[x]` Shipped 2026-07-20 | 1 |
 | 8 | AI-012 SQLite Persistence | Infra | `[x]` Complete | 2 |
 | 9 | Phase 4 Docker polish | Infra | `[x]` Complete | 1 |
-| 10 | Phase 5 Eval Harness | Infra | `[x]` Complete | 2-3 |
+| 10 | Phase 5 Eval Harness | Infra | `[x]` Complete (Dynamic regeneration enabled) | 2-3 |
 | 11 | Phase 2 Self-Healing | ML | `[~]` Core shipped | 2-3 |
 | 12 | Phase 3 RAG | ML | `[x]` Shipped 2026-07-21 | 3-4 |
 | 13 | Phase 1 Multi-Agent | ML | `[ ]` High (promoted) | 3-4 |
