@@ -534,6 +534,31 @@ appear on multiple pages. The only precise page-identity check is `expect(page).
 
 ---
 
+### 12b. AI-034 — Test Table Generation & Pre-Flight Resolution Reporting
+
+**Priority:** High  
+**Status:** `[ ]` Not started  
+**Spec:** `docs/specs/FEATURE_SPEC_AI034_test_table_preflight.md`  
+**Dependency:** Phase 1 Multi-Agent (Ingestion Agent feeds richer input)
+**Impact:** Prevents silent `pytest.skip()` by showing resolution failures BEFORE tests are generated
+
+**Problem:** When the resolver can't match a placeholder to the site DOM (e.g., skeleton
+expects a quantity input but the site uses click-to-add), it silently writes `pytest.skip()`.
+The tester discovers this only after code is generated — too late to adapt.
+
+**What's needed:**
+- [x] Write spec: `docs/specs/FEATURE_SPEC_AI034_test_table_preflight.md`
+- [ ] Phase 1: Test Table generation — LLM expands each condition into one or more test rows
+- [ ] Phase 2: Living Test Plan enhancement — "Tests" column showing count per condition
+- [ ] Phase 3: Pre-flight resolution reporting — ⚠ in Test Table with Skip / Edit / Run anyway
+- [ ] Phase 4: Skeleton generation — one function per test row
+- [ ] Test Table editor UI in Streamlit (mirrors Living Test Plan pattern)
+- [ ] 30+ unit tests (`test_test_table.py`)
+
+**Estimated sessions:** 3-4
+
+---
+
 ## Tier 5 — Commercialization
 
 Items required to sell the tool publicly (marketplace, SaaS, CI/CD integration).
@@ -640,6 +665,7 @@ limits, is cacheable, and safe for retries.
 | 11 | Phase 2 Self-Healing | ML | `[~]` Core shipped | 2-3 |
 | 12 | Phase 3 RAG | ML | `[x]` Shipped 2026-07-21 | 3-4 |
 | 13 | Phase 1 Multi-Agent | ML | `[ ]` High (promoted) | 3-4 |
+| 13b | AI-034 Test Table & Pre-flight | ML | `[ ]` Not started | 3-4 |
 | 14 | Phase 6 SaaS Deployment | Commercial | `[ ]` Not started | 3-4 |
 | 15 | Phase 7 CI/CD Integration | Commercial | `[ ]` Not started | 2-3 |
 | 16 | Phase 8 GTM Assets | Commercial | `[ ]` Not started | 2-3 |
