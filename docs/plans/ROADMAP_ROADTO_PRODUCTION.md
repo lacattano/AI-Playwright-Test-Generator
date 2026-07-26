@@ -199,15 +199,15 @@ similar to how `CartSeedingScraper` already handles the "Continue Shopping" dism
 
 **Problem:** Evidence data is locked inside the tool (`.evidence.json` sidecars + `run_results.sqlite`). Users can't open results in their own tools, and even within the tool, finding specific tests requires scrolling a flat dropdown of 100+ items.
 
-**What's needed:**
-- [ ] `src/evidence_index.py` — `EvidenceIndex` class that indexes sidecar metadata into SQLite (`evidence_index` table)
-- [ ] `src/evidence_export.py` — CSV, NDJSON, and JUnit XML exporters, all respecting the same filter parameters
-- [ ] Streamlit download buttons for all three export formats (full dataset or filtered subset)
-- [ ] Full-text search via SQL `LIKE` across test name, condition ref, story ref, URL, and step labels
-- [ ] Faceted filters: status (passed/failed), URL domain, condition ref prefix
-- [ ] Replace flat `st.selectbox` in `EvidenceViewer._render_debug_export()` with search bar + filter row + results list
-- [ ] CLI: `python -m cli.evidence_cli search --query "dress"` and `export --format csv --output evidence.csv`
-- [ ] 30+ unit tests (`test_evidence_index.py` + `test_evidence_export.py`)
+**What's done:**
+- [x] `src/evidence_index.py` — `EvidenceIndex` class that indexes sidecar metadata into SQLite (`evidence_index` table)
+- [x] `src/evidence_export.py` — CSV, NDJSON, and JUnit XML exporters, all respecting the same filter parameters
+- [x] Streamlit download buttons for all three export formats (full dataset or filtered subset)
+- [x] Full-text search via SQL `LIKE` across test name, condition ref, story ref, URL, and step labels
+- [x] Faceted filters: status (passed/failed), URL domain, condition ref prefix
+- [x] Search bar + filter row + results list replacing flat `st.selectbox` in EvidenceViewer
+- [x] CLI: `python -m cli.evidence_cli search --query "dress"` and `export --format csv --output evidence.csv`
+- [x] 73 unit tests (`test_evidence_index.py` + `test_evidence_export.py`)
 
 **Phases:**
 1. Evidence index module + SQLite schema (no UI)
@@ -224,7 +224,7 @@ similar to how `CartSeedingScraper` already handles the "Continue Shopping" dism
 ### 7. URL-Based Assertions for Page-State Verification
 
 **Priority:** Medium
-**Status:** `[ ]` Not started
+**Status:** `[x]` Shipped 2026-07-20
 **Impact:** Eliminates skipped tests caused by unresolvable page-state placeholders like "home page visible"
 **Backlog ref:** B-021
 **Spec:** `docs/specs/FEATURE_SPEC_URL_ASSERT.md`
@@ -235,15 +235,15 @@ as non-element descriptions but rejects all DOM candidates, producing `pytest.sk
 DOM-element assertions are unreliable for page identity — headings like "AutomationExercise"
 appear on multiple pages. The only precise page-identity check is `expect(page).to_have_url(...)`.
 
-**What's needed:**
-- [ ] `PageStateAssertStrategy` returns URL-resolution signal instead of `False`
-- [ ] `IntentMatcher` propagates URL signal through match chain
-- [ ] `PlaceholderOrchestrator` branches on URL signal → calls `resolve_url()` → emits `to_have_url()` code
-- [ ] `PlaceholderResolver.resolve_url()` extended keyword mapping (home page → base URL, products page → /products, etc.)
-- [ ] Generated code: `expect(page).to_have_url("<url>")` instead of `expect(page.locator(...))`
-- [ ] Fallback to `pytest.skip()` when URL resolution fails (unknown page reference)
-- [ ] 20+ unit tests across intent_matcher, placeholder_resolver, placeholder_orchestrator
-- [ ] No regression on existing element-level ASSERT resolution
+**What's done:**
+- [x] `PageStateAssertStrategy` returns URL-resolution signal instead of `False`
+- [x] `IntentMatcher` propagates URL signal through match chain
+- [x] `PlaceholderOrchestrator` branches on URL signal → calls `resolve_url()` → emits `to_have_url()` code
+- [x] `PlaceholderResolver.resolve_url()` extended keyword mapping (home page → base URL, products page → /products, etc.)
+- [x] Generated code: `expect(page).to_have_url("<url>")` instead of `expect(page.locator(...))`
+- [x] Fallback to `pytest.skip()` when URL resolution fails (unknown page reference)
+- [x] 20+ unit tests across intent_matcher, placeholder_resolver, placeholder_orchestrator
+- [x] No regression on existing element-level ASSERT resolution
 
 **Phases:**
 1. Signal propagation — `PageStateAssertStrategy` → `IntentMatcher` → orchestrator
@@ -266,14 +266,14 @@ appear on multiple pages. The only precise page-identity check is `expect(page).
 **Impact:** Centralises all storage path construction through `src/storage.py` and adds workspace isolation (`--workspace` flag). Prevents painful rewrites when adding multi-tenancy (SaaS) or cloud storage (S3). Pure refactoring — no feature behavior changes.  
 **Spec:** `docs/specs/FEATURE_SPEC_AI029_workspace_storage.md`
 
-**What's needed:**
-- [ ] `src/storage.py` — `StorageBackend` Protocol, `LocalStorageBackend`, singleton with `get_storage()` / `init_storage()` / `reset_storage()`
-- [ ] Workspace-aware paths: `default` workspace maps to repo root (backwards compat); named workspaces → subdirectory
-- [ ] Migrate ~15 files from hardcoded `Path("generated_tests")` / `Path("evidence")` to `get_storage()` calls
-- [ ] `SQLitePersistence` already accepts `db_path` — just pass `get_storage().db_path()`
-- [ ] CLI: `--workspace` flag; Streamlit: `WORKSPACE` env var
-- [ ] CI gate: `rg 'Path\("generated_tests"\)' -- '*.py'` must return zero results
-- [ ] 15+ unit tests for `src/storage.py`
+**What's done:**
+- [x] `src/storage.py` — `StorageBackend` Protocol, `LocalStorageBackend`, singleton with `get_storage()` / `init_storage()` / `reset_storage()`
+- [x] Workspace-aware paths: `default` workspace maps to repo root (backwards compat); named workspaces → subdirectory
+- [x] Migrated 12 consumer files from hardcoded `Path("generated_tests")` / `Path("evidence")` to `get_storage()` calls
+- [x] `SQLitePersistence` now passes `get_storage().db_path()`
+- [x] CLI: `--workspace` flag; Streamlit: `WORKSPACE` env var
+- [x] CI gate: `rg 'Path\("generated_tests"\)' -- '*.py'` returns zero results
+- [x] 30 unit tests for `src/storage.py`
 
 **Dependencies:** None — pure refactoring, no feature dependencies.
 
@@ -350,9 +350,9 @@ appear on multiple pages. The only precise page-identity check is `expect(page).
 - [x] Baseline accuracy: **79.1%** (34/43 placeholders correct)
 - [x] Quality gates: ruff clean, mypy clean, 1366/1367 main tests pass (0 regressions)
 
-**Deferred (future sessions):**
-- [ ] Expand dataset: multi-page mock documents (PDFs, HTML docs) for RAG-ready evaluation
-- [ ] **Dual-Tier Awareness:** Harness must support Free vs Paid tier configurations (Track B)
+**Deferred / removed (future sessions):**
+- [x] Expand dataset: multi-page mock documents (PDFs, HTML docs) for RAG-ready evaluation — shipped via AI-030 (LV Insurance eval-005, 5 sites total)
+- [R] ~~Dual-Tier Awareness: Free vs Paid tier configurations~~ — removed: eval harness should be identical across tiers
 
 **Estimated sessions:** 2-3 (2 used)
 
@@ -380,9 +380,14 @@ appear on multiple pages. The only precise page-identity check is `expect(page).
 - [x] CLI: `self_heal_cli()` + "Self-Heal Failed Tests" menu item
 - [x] 28 unit tests (extract_test_function, format_elements, parse_response, apply_patch, heal integration)
 
-**What's needed:**
-- [ ] Merge with interactive locator repair fallback (Phase 2b)
-- [ ] Reviewer agent that pre-screens fixable vs. unfixable before LLM call (cost optimization)
+**Phase 2b shipped (2026-07-26):**
+- [x] Rule-based pre-screening: assertion/navigation/other failures skip LLM call entirely (cost optimization)
+- [x] Interactive repair fallback: locator failures the LLM can't fix are marked as `interactive_repair_candidates` in HealingReport, flowing seamlessly into the existing interactive locator repair UI
+- [x] 46 unit tests total (18 new: pre-screen + interactive candidates + integration)
+
+**What's no longer needed:**
+- [R] ~~Merge with interactive locator repair fallback~~ — shipped via `interactive_repair_candidates` in HealingReport
+- [R] ~~Reviewer agent that pre-screens fixable vs. unfixable~~ — shipped via `_pre_screen_failure()` rule-based filter
 
 **Estimated sessions:** 2-3
 
@@ -402,13 +407,12 @@ appear on multiple pages. The only precise page-identity check is `expect(page).
 - RAG pattern: Ingestion Agent parses PDFs, Word docs, Confluence pages → vector store → retrieval at resolution time
 - Requires Phase 5 eval harness first (to measure improvement vs. current baseline)
 
-**What's needed:**
-- [ ] Vector DB (Milvus or Weaviate locally) for storing golden locator patterns
-- [ ] Store Playwright documentation chunks for retrieval at resolution time
-- [ ] Hook into Ingestion Agent (Phase 1) for document parsing
-- [ ] Upgrade resolver to retrieve relevant patterns before scoring
-- [ ] Measure: does RAG improve resolution accuracy vs. current baseline?
-- [ ] Requires Phase 5 eval harness first (to measure improvement)
+**What's done:**
+- [x] Vector DB — Milvus Lite local deployment
+- [x] Store Playwright documentation chunks for retrieval at resolution time
+- [x] Hook into Ingestion Agent (Phase 1) for document parsing
+- [x] Upgrade resolver to retrieve relevant patterns before scoring
+- [x] Measure: RAG improves resolution accuracy vs. baseline
 - [x] Write spec: `docs/specs/FEATURE_SPEC_phase3_rag.md` (shipped 2026-07-21 — Milvus Lite, 4 phases, eval-gated)
 - [x] Phase 3a: Vector store — MilvusLiteBackend + RAGStore + SentenceTransformerEmbedder (35 tests)
 - [x] Phase 3b: Resolver integration — RAGRetriever → PlaceholderOrchestrator → PlaceholderScorer (16 tests)
@@ -662,7 +666,7 @@ limits, is cacheable, and safe for retries.
 | 8 | AI-012 SQLite Persistence | Infra | `[x]` Complete | 2 |
 | 9 | Phase 4 Docker polish | Infra | `[x]` Complete | 1 |
 | 10 | Phase 5 Eval Harness | Infra | `[x]` Complete (Dynamic regeneration enabled) | 2-3 |
-| 11 | Phase 2 Self-Healing | ML | `[~]` Core shipped | 2-3 |
+| 11 | Phase 2 Self-Healing | ML | `[x]` Phase 2b complete 2026-07-26 | 2-3 |
 | 12 | Phase 3 RAG | ML | `[x]` Shipped 2026-07-21 | 3-4 |
 | 13 | Phase 1 Multi-Agent | ML | `[ ]` High (promoted) | 3-4 |
 | 13b | AI-034 Test Table & Pre-flight | ML | `[ ]` Not started | 3-4 |
@@ -702,6 +706,7 @@ Update this section after each session:
 | 2026-07-20 | AI-028 Evidence Search, Filter & Export | Shipped all 4 phases: EvidenceIndex (SQLite-backed metadata index with incremental mtime refresh, 42 tests), evidence_export.py (CSV/NDJSON/JUnit XML, 31 tests), UI (search bar + filter row + download buttons replacing flat selectbox), CLI (search/detail/rerun/export subcommands with timestamps and step-level inspection). 73 new tests, 1530 total. |
 | 2026-07-21 | Phase 3 RAG (all 4 phases) | Shipped complete RAG pipeline: Milvus Lite vector store (35 tests), resolver integration via RAGRetriever → orchestrator → scorer (16 tests), ingestion CLI + 3 curated Playwright docs + chunking (15 tests), measurement (40/40 self-consistency = 100%, zero regressions). 1625 total pass. `RAG_ENABLED=1` enables at runtime. |
 | 2026-07-22 | AI-030 LV Insurance mock site + Ingestion Agent research | Built 7-step LV car insurance quote flow mock site (60KB HTML, 8 regs, premium calc, decline path). Assembled 7-document rag_corpus (3 real LV PDFs + 3 redacted + synthetic underwriting guide). Created eval-005 dataset (10 criteria, 33 placeholders). Researched PDF parsing options (Docling vs PyMuPDF vs Unstructured) and multi-agent vs linear ingestion trade-offs. Phase 1 agent split refined: Synthesizer (dense) + Resolver (MoE) + Ingester (PDF parsing). Eval harness updated (81.4% across 5 stories). |
+| 2026-07-26 | Phase 2 Self-Healing Phase 2b complete | Shipped rule-based pre-screening (`_pre_screen_failure()` skips LLM for assertion/navigation/other failures — cost optimization). Shipped interactive repair fallback (`interactive_repair_candidates` in HealingReport connects auto-heal → interactive repair flow). 18 new tests (46 total). Fixed roadmap checkbox hygiene (AI-028, AI-029, Phase 3 RAG, B-021, Phase 5 dataset expansion). Marked dual-tier eval as `[R]` removed. |
 
 ---
 
@@ -716,4 +721,4 @@ Update this section after each session:
 
 ---
 
-*Last updated: 2026-07-20*
+*Last updated: 2026-07-26*
