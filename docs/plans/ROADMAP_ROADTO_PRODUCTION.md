@@ -668,7 +668,7 @@ limits, is cacheable, and safe for retries.
 | 10 | Phase 5 Eval Harness | Infra | `[x]` Complete (Dynamic regeneration enabled) | 2-3 |
 | 11 | Phase 2 Self-Healing | ML | `[x]` Phase 2b complete 2026-07-26 | 2-3 |
 | 12 | Phase 3 RAG | ML | `[x]` Shipped 2026-07-21 | 3-4 |
-| 13 | Phase 1 Multi-Agent | ML | `[ ]` High (promoted) | 3-4 |
+| 13 | Phase 1 Multi-Agent | ML | `[~]` Phases a-c complete 2026-07-26 | 3-4 |
 | 13b | AI-034 Test Table & Pre-flight | ML | `[ ]` Not started | 3-4 |
 | 14 | Phase 6 SaaS Deployment | Commercial | `[ ]` Not started | 3-4 |
 | 15 | Phase 7 CI/CD Integration | Commercial | `[ ]` Not started | 2-3 |
