@@ -363,7 +363,7 @@ appear on multiple pages. The only precise page-identity check is `expect(page).
 ### 10. Phase 2 — Full Self-Healing Reflection Loops
 
 **Priority:** Medium (portfolio)  
-**Status:** `[~]` Core loop shipped 2026-07-20 (Streamlit integration done). Iterative reflection loop remaining.  
+**Status:** `[x]` Shipped 2026-07-26 — iterative reflection loop complete  
 **Impact:** "Self-healing AI automation" marketing message
 
 **Foundation already built:**
@@ -666,7 +666,7 @@ limits, is cacheable, and safe for retries.
 | 8 | AI-012 SQLite Persistence | Infra | `[x]` Complete | 2 |
 | 9 | Phase 4 Docker polish | Infra | `[x]` Complete | 1 |
 | 10 | Phase 5 Eval Harness | Infra | `[x]` Complete (Dynamic regeneration enabled) | 2-3 |
-| 11 | Phase 2 Self-Healing | ML | `[x]` Phase 2b complete 2026-07-26 | 2-3 |
+| 11 | Phase 2 Self-Healing | ML | `[x]` Complete 2026-07-27 | 2-3 |
 | 12 | Phase 3 RAG | ML | `[x]` Shipped 2026-07-21 | 3-4 |
 | 13 | Phase 1 Multi-Agent | ML | `[~]` Phases a-c complete 2026-07-26 | 3-4 |
 | 13b | AI-034 Test Table & Pre-flight | ML | `[ ]` Not started | 3-4 |
@@ -708,6 +708,7 @@ Update this section after each session:
 | 2026-07-22 | AI-030 LV Insurance mock site + Ingestion Agent research | Built 7-step LV car insurance quote flow mock site (60KB HTML, 8 regs, premium calc, decline path). Assembled 7-document rag_corpus (3 real LV PDFs + 3 redacted + synthetic underwriting guide). Created eval-005 dataset (10 criteria, 33 placeholders). Researched PDF parsing options (Docling vs PyMuPDF vs Unstructured) and multi-agent vs linear ingestion trade-offs. Phase 1 agent split refined: Synthesizer (dense) + Resolver (MoE) + Ingester (PDF parsing). Eval harness updated (81.4% across 5 stories). |
 | 2026-07-26 | AI-030 Ingestion Agent complete | Shipped PDF ingestion: `src/pdf_ingest.py` (PyMuPDF) wired into `rag_ingest.py --pdfs`. 3 LV Insurance policy PDFs ingested → 66 chunks in RAG store (160 total). RAG accuracy 53.7 → 64.2% (+10.5pp), LV Insurance 83.3 → 91.7%. Updated BACKLOG.md (B-027 + AI-030 → Complete), AGENTS.md (backlog sync rule), ship-it SKILL.md (status update step). Installed PyMuPDF dependency. |
 | 2026-07-26 | Phase 2 Self-Healing Phase 2b complete | Shipped rule-based pre-screening (`_pre_screen_failure()` skips LLM for assertion/navigation/other failures — cost optimization). Shipped interactive repair fallback (`interactive_repair_candidates` in HealingReport connects auto-heal → interactive repair flow). 18 new tests (46 total). Fixed roadmap checkbox hygiene (AI-028, AI-029, Phase 3 RAG, B-021, Phase 5 dataset expansion). Marked dual-tier eval as `[R]` removed. |
+| 2026-07-27 | Phase 2 Iterative Reflection Loop complete | Shipped: per-test `attempt_history` tracking, `prior_attempts` injection into LLM reviewer prompt, reflection rules (avoid repeating failed strategies), `total_llm_calls` counter. 11 new tests (57 total). ruff/mypy clean. Phase 2 → `[x]` Complete. |
 
 ---
 
