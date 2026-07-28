@@ -536,6 +536,8 @@ appear on multiple pages. The only precise page-identity check is `expect(page).
 
 **Estimated sessions:** 4-5 (increased from 3-4 due to cloud provider integration)
 
+**📄 Document-Driven Input Mode:** Spec'd as §9 of `FEATURE_SPEC_phase1_multi_agent.md` (2026-07-26). Extends the same `PipelineGraph` with PDF/Markdown ingestion, change-delta extraction, persona-aware routing, impact mapping, and consolidated reporting. Parsing front-end starts with PyMuPDF (shipped via AI-030); Unlimited OCR (arXiv:2606.23050) is the upgrade path when GPU infra is available. Adds 3 sessions to Phase 1 total (phases 1f-1j).
+
 ---
 
 ### 12b. AI-034 — Test Table Generation & Pre-Flight Resolution Reporting
@@ -668,7 +670,7 @@ limits, is cacheable, and safe for retries.
 | 10 | Phase 5 Eval Harness | Infra | `[x]` Complete (Dynamic regeneration enabled) | 2-3 |
 | 11 | Phase 2 Self-Healing | ML | `[x]` Complete 2026-07-27 | 2-3 |
 | 12 | Phase 3 RAG | ML | `[x]` Shipped 2026-07-21 | 3-4 |
-| 13 | Phase 1 Multi-Agent | ML | `[~]` Phases a-c complete 2026-07-26 | 3-4 |
+| 13 | Phase 1 Multi-Agent | ML | `[~]` Phases a-c complete 2026-07-26. Phases d-j (doc-mode) spec'd. | 3-4 + 3 (doc-mode) |
 | 13b | AI-034 Test Table & Pre-flight | ML | `[ ]` Not started | 3-4 |
 | 14 | Phase 6 SaaS Deployment | Commercial | `[ ]` Not started | 3-4 |
 | 15 | Phase 7 CI/CD Integration | Commercial | `[ ]` Not started | 2-3 |
@@ -677,7 +679,7 @@ limits, is cacheable, and safe for retries.
 | 18 | State-Dep. Scraping (B-022) | Bug | `[x]` Shipped 2026-07-20 | 1 |
 | 19 | Cart Modal (B-023) | Bug | `[x]` Shipped 2026-07-20 | 0.5 |
 
-**Total estimated sessions:** 29-43 (+2 for AI-012)
+**Total estimated sessions:** 32-46 (+2 for AI-012, +3 for Phase 1 doc-mode)
 
 ---
 
