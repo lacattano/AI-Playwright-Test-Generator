@@ -670,7 +670,7 @@ limits, is cacheable, and safe for retries.
 | 10 | Phase 5 Eval Harness | Infra | `[x]` Complete (Dynamic regeneration enabled) | 2-3 |
 | 11 | Phase 2 Self-Healing | ML | `[x]` Complete 2026-07-27 | 2-3 |
 | 12 | Phase 3 RAG | ML | `[x]` Shipped 2026-07-21 | 3-4 |
-| 13 | Phase 1 Multi-Agent | ML | `[~]` Phases a-c complete 2026-07-26. Phases d-j (doc-mode) spec'd. | 3-4 + 3 (doc-mode) |
+| 13 | Phase 1 Multi-Agent | ML | `[x]` Complete 2026-07-31. All phases (1a-1j): LangGraph core + eval + doc-mode pipeline (PDF/Markdown parsing, change deltas, persona routing, impact mapping, OCR backends, eval dataset). +88 tests, 1900 total. | 3-4 + 3 (doc-mode) |
 | 13b | AI-034 Test Table & Pre-flight | ML | `[ ]` Not started | 3-4 |
 | 14 | Phase 6 SaaS Deployment | Commercial | `[ ]` Not started | 3-4 |
 | 15 | Phase 7 CI/CD Integration | Commercial | `[ ]` Not started | 2-3 |
@@ -711,6 +711,8 @@ Update this section after each session:
 | 2026-07-26 | AI-030 Ingestion Agent complete | Shipped PDF ingestion: `src/pdf_ingest.py` (PyMuPDF) wired into `rag_ingest.py --pdfs`. 3 LV Insurance policy PDFs ingested → 66 chunks in RAG store (160 total). RAG accuracy 53.7 → 64.2% (+10.5pp), LV Insurance 83.3 → 91.7%. Updated BACKLOG.md (B-027 + AI-030 → Complete), AGENTS.md (backlog sync rule), ship-it SKILL.md (status update step). Installed PyMuPDF dependency. |
 | 2026-07-26 | Phase 2 Self-Healing Phase 2b complete | Shipped rule-based pre-screening (`_pre_screen_failure()` skips LLM for assertion/navigation/other failures — cost optimization). Shipped interactive repair fallback (`interactive_repair_candidates` in HealingReport connects auto-heal → interactive repair flow). 18 new tests (46 total). Fixed roadmap checkbox hygiene (AI-028, AI-029, Phase 3 RAG, B-021, Phase 5 dataset expansion). Marked dual-tier eval as `[R]` removed. |
 | 2026-07-30 | Pipeline Performance (batching + parallelization) | Shipped ASSERT Pass 3 batching: deferred ASSERTs collected per journey, batch-resolved via `find_best_elements_batch()` in one LLM call instead of N. Resolution phase: 42s → 26s (−38%). Shipped journey discovery parallelization: journeys run concurrently via `asyncio.gather()`, each with own `JourneyScraper`. Discovery phase: 34s → 12s (−65%). Combined pipeline time halved: ~110s → ~51s. Shipped eval DB persistence with pipeline tracking (linear/graph, regenerated/captured, git_commit). Fixed pre-commit mypy version v1.15.0 → v2.3.0. 1788 tests pass, static eval 100%. |
+| 2026-07-30 | Phase 1d self-consistency (temperature=0) | Added `temperature` parameter to `LLMProvider.complete()` ABC + all 3 implementations (OpenAI, LMStudio, Ollama). Threaded through `LLMClient._complete_sync()` → `generate()`. Pinned Planner+Generator at `temperature=0`. Skeleton self-consistency: 55.6% → 100% (byte-for-byte identical across runs). 1788 tests pass, static eval 100%, ruff/mypy clean. |
+| 2026-07-31 | Phase 1f-1j doc-mode (complete) | Shipped all 5 doc-mode phases: state schema + PDF/markdown parsing node (1f, 20 tests), change delta extraction with heading fallback (1g, 21 tests), persona routing + impact mapping + consolidated report (1h, 24 tests), OCR backend adapter with PyMuPDF + Unlimited OCR support (1i, 15 tests), eval dataset with 3 spec documents + quality gate at ≥90% heading accuracy (1j, 8 tests). +88 total, 1900 passed. Also shipped: journey URL inference fix for saucedemo checkout pages (Phase 1d), mock server stability via ThreadingHTTPServer (Phase 1d), AI-037 LV Insurance gap spec, AI-038 Unlimited OCR AMD test backlog item. |
 
 1. **One item per session** — per AGENTS.md §10
 2. **Design session first** for B-014 and any item marked "Needs design session"
@@ -721,4 +723,4 @@ Update this section after each session:
 
 ---
 
-*Last updated: 2026-07-26*
+*Last updated: 2026-07-31*
