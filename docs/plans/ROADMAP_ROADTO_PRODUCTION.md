@@ -426,7 +426,7 @@ appear on multiple pages. The only precise page-identity check is `expect(page).
 ### 12. Phase 1 — Multi-Agent Architecture (LangGraph) with Model-Agnostic Providers
 
 **Priority:** High (promoted from Low)  
-**Status:** `[ ]` Not started  
+**Status:** `[x]` Complete 2026-07-31 — BUT **dormant**: not wired into the user-facing pipeline (see BACKLOG "LangGraph Pipeline — Dormant" note 2026-08-01). `run_pipeline_via_graph()` is called only by eval `--use-graph` + unit tests; the UI/CLI/uat use the linear `run_pipeline()`. `langgraph` is a core dependency — graph tests run locally and in CI (71/71 pass).
 **Impact:** Formal multi-agent pattern for portfolio + enables Phase 3 RAG + complete model flexibility
 
 **Research verified (2026-06-14):**
@@ -540,24 +540,20 @@ appear on multiple pages. The only precise page-identity check is `expect(page).
 
 ---
 
-### 12b. AI-034 — Test Table Generation & Pre-Flight Resolution Reporting
+### 12b. AI-034 — Test Table Generation (COMPLETE 2026-08-01)
 
 **Priority:** High  
-**Status:** `[ ]` Not started  
+**Status:** `[x]` Complete — Phases 1-3 shipped 2026-08-01  
 **Spec:** `docs/specs/FEATURE_SPEC_AI034_test_table_preflight.md`  
-**Dependency:** Phase 1 Multi-Agent (Ingestion Agent feeds richer input)
-**Impact:** Prevents silent `pytest.skip()` by showing resolution failures BEFORE tests are generated
-
-**Problem:** When the resolver can't match a placeholder to the site DOM (e.g., skeleton
-expects a quantity input but the site uses click-to-add), it silently writes `pytest.skip()`.
-The tester discovers this only after code is generated — too late to adapt.
+**Dependency:** Phase 1 Multi-Agent (Ingestion Agent feeds richer input) — met
+**Impact:** One focused test row per scenario; tester reviews/edits rows before one skeleton per row is generated
 
 **What's needed:**
 - [x] Write spec: `docs/specs/FEATURE_SPEC_AI034_test_table_preflight.md`
-- [ ] Phase 1: Test Table generation — LLM expands each condition into one or more test rows
-- [ ] Phase 2: Living Test Plan enhancement — "Tests" column showing count per condition
-- [ ] Phase 3: Pre-flight resolution reporting — ⚠ in Test Table with Skip / Edit / Run anyway
-- [ ] Phase 4: Skeleton generation — one function per test row
+- [x] Phase 1: Test Table generation — `src/test_table.py` data model + LLM expansion + CRUD
+- [x] Phase 2: Living Test Plan enhancement — "Tests" column + editors in Streamlit AND CLI
+- [R] Phase 3: Pre-flight resolution reporting — removed from spec 2026-07-31 (resolver already surfaces failures via `pytest.skip()` + evidence)
+- [x] Phase 4: Skeleton generation — one function per test row (via `table_to_conditions()`)
 - [ ] Test Table editor UI in Streamlit (mirrors Living Test Plan pattern)
 - [ ] 30+ unit tests (`test_test_table.py`)
 
@@ -613,7 +609,7 @@ Items required to sell the tool publicly (marketplace, SaaS, CI/CD integration).
 ### 15. Phase 8 — GTM Assets
 
 **Priority:** Medium (deferred)  
-**Status:** `[ ]` Not started  
+**Status:** `[~]` In progress — research + domains complete 2026-07-31. **P0 repo/PyPI rename DEFERRED by decision 2026-08-01** — revisit at launch readiness (renaming is disruptive once the package is published). See backlog AI-039.  
 **Impact:** Everything customers see before they buy. Landing page, docs, demo, marketplace listings.  
 
 **What's needed:**
@@ -671,10 +667,10 @@ limits, is cacheable, and safe for retries.
 | 11 | Phase 2 Self-Healing | ML | `[x]` Complete 2026-07-27 | 2-3 |
 | 12 | Phase 3 RAG | ML | `[x]` Shipped 2026-07-21 | 3-4 |
 | 13 | Phase 1 Multi-Agent | ML | `[x]` Complete 2026-07-31. All phases (1a-1j): LangGraph core + eval + doc-mode pipeline (PDF/Markdown parsing, change deltas, persona routing, impact mapping, OCR backends, eval dataset). +88 tests, 1900 total. | 3-4 + 3 (doc-mode) |
-| 13b | AI-034 Test Table & Pre-flight | ML | `[ ]` Not started (spec updated 2026-07-31 — stripped pre-flight, focus on condition→row expansion + one-skeleton-per-row) | 2-3 |
+| 13b | AI-034 Test Table & Pre-flight | ML | `[x]` Complete 2026-08-01. Phases 1-3: `src/test_table.py` (expansion + CRUD), Test Table editors in Streamlit + CLI, LTP "Tests" column, one skeleton per confirmed row. Pre-flight removed from spec (resolver + evidence covers it). UAT: 8 rows → 8 functions 1:1. | 2-3 |
 | 14 | Phase 6 SaaS Deployment | Commercial | `[ ]` Research complete 2026-07-31. MVP: Streamlit Cloud Pro ($55/mo) + streamlit-authenticator. Auth: Google OAuth. Multi-tenant: already built via AI-029 workspace isolation. | 1-2 |
 | 15 | Phase 7 CI/CD Integration | Commercial | `[ ]` Research complete 2026-07-31. MVP: custom GitHub Action in our own repo. Three modes: generate-only, generate-and-run, run-existing. JUnit XML already supported. PR comment with pass/fail summary. | 1 |
-| 16 | Phase 8 GTM Assets | Commercial | `[~]` In progress. Research complete 2026-07-31. Domains acquired: tancat.dev (product), cattanooperations.co.uk + .com (company). Holding: Cat Tan Operations Ltd. Product: TanCat. P0 next: rename repo + PyPI package. | 2-3 |
+| 16 | Phase 8 GTM Assets | Commercial | `[~]` In progress. Research complete 2026-07-31. Domains acquired; holding co + product name set. **P0 repo/PyPI rename deferred until launch readiness (decision 2026-08-01, backlog AI-039).** | 2-3 |
 | 17 | URL-Based Assertions (B-021) | Feature | `[x]` Shipped 2026-07-20 | 1 |
 | 18 | State-Dep. Scraping (B-022) | Bug | `[x]` Shipped 2026-07-20 | 1 |
 | 19 | Cart Modal (B-023) | Bug | `[x]` Shipped 2026-07-20 | 0.5 |
@@ -716,6 +712,7 @@ Update this section after each session:
 | 2026-07-31 | Commercial research + domains | Researched Phase 6-8 (SaaS, CI/CD, GTM). Acquired domains: tancat.dev (product, £11/yr), cattanooperations.co.uk + .com (holding company). Renamed product to TanCat, holding company Cat Tan Operations Ltd. Updated AI-034 spec (stripped pre-flight, focus on test table expansion). |
 | 2026-07-31 | t-string PromptBuilder + AI-037 diagnostic | Shipped PEP 750 t-string prompt assembly (`src/prompt_builder.py`): structured rendering (trusted static vs untrusted fields), per-field truncation, `to_log_entry()` audit trail. Wired into `TestGenerator._generate_skeleton_single_call` + `Orchestrator._generate_single_condition_fragment` — byte-identical prompts to legacy `.format()` (UAT-verified, 2886 chars). Fixed latent single-condition prompt inconsistency (literal `{{CLICK:...}}` → `{CLICK:...}`). AI-033 resolved (Jinja2 double-brace blocker disproven — t-strings escape `{{`). AI-037 diagnostic: resolver 23/24 (95.8%); 54% regeneration gap = LLM skeleton nondeterminism, not vocabulary — no vocab list needed. 13 new tests, 1913 total, static eval 100%. |
 | 2026-07-31 | AI-037 resolver fixes (Phase 1-2) | Shipped 10 structural resolver/scraper fixes: radio label capture, clickable-div-with-id capture (`#productCar`), `<strong>` display capture, synthetic-ARIA marker, radio `input[name][value]` locator format, quote-agnostic locator normalisation, camelCase in `get_words()`, Pass 1 synthetic skip, radio CLICK bonus + synthetic container exclusion, proportional text-content bonus. LV Insurance resolver 23/24 → **24/24 (100%)**; overall resolver 58.2% → 59.7%; regeneration UAT LV 54% → **62.5%**, overall 56.7%. 15 new tests (1928 total). `scripts/eval/refresh_lv_capture.py` reproduces frozen eval data in journey state. Next: AI-037 Phase 3 (skeleton journey-structure guidance) — handover `docs/sessions/2026-07-31_ai037_resolver_fixes.md`. |
+| 2026-08-01 | AI-034 Test Table (Phases 1-3) + B-027 re-fix + UI fixes | **AI-034 COMPLETE**: `src/test_table.py` (TestRow/TestTable/CRUD, TestTableExpander with fallback + cap, table_to_conditions), Test Table editors in Streamlit + CLI, LTP "Tests" column, one skeleton per confirmed row. 33 tests + UAT (8 rows → 8 functions 1:1, real LLM). **B-027 re-fixed properly**: naive comma-splitter had been reverted; added SPLITTING RULES prompt, numbered-wrap routing, JSON retry-once + salvage gate, sentence-boundary fallback. Verified: 1 story → 3 conditions. **UI fixes**: `PIPELINE_TEST_TIMEOUT` 300s→600s; run-tests errors now inline in Run section (`run_tests_error`) instead of off-screen `pipeline_error`. **B-028 logged** (journey discovery picks cart link for product/add-to-cart — evidence in BACKLOG). **LangGraph dormant state documented** (graph not wired into user flow; CI skips its tests). AI-039 rename deferred to launch readiness. 1998 tests, static eval 100%. |
 
 1. **One item per session** — per AGENTS.md §10
 2. **Design session first** for B-014 and any item marked "Needs design session"
@@ -726,4 +723,4 @@ Update this section after each session:
 
 ---
 
-*Last updated: 2026-07-31*
+*Last updated: 2026-08-01*
