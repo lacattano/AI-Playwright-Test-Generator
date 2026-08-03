@@ -627,6 +627,72 @@ Items required to sell the tool publicly (marketplace, SaaS, CI/CD integration).
 
 ---
 
+## Tier 6 — Product Expansion (beyond browser E2E)
+
+Long-term directions so the product doesn't become "the web-DOM tester". These
+are recorded here (and on the kanban) as planned backlog; none are scheduled
+until the mock-site family proves the pipeline generalises across DOM shapes.
+
+**Guardrail for current work:** keep the mid-pipeline layers (discover → resolve
+→ emit → execute) as swappable seams rather than welded browser code. When
+building each mock in `mock_sites/`, note which layer would change if the
+target were an OpenAPI spec or a .NET project.
+
+### FC-02 — API Testing
+
+**Priority:** Future
+**Status:** `[ ]` Not started
+**Impact:** Opens the tool to backend/test-automation teams; reuses the whole
+outer loop (story → conditions → LLM skeleton → evidence → eval harness).
+
+**What transfers (already built):** user-story parsing, condition extraction
+(`spec_analyzer`), LLM skeleton generation, evidence tracking, run history,
+exports, eval harness.
+
+**What's new:**
+- [ ] Discovery: read an OpenAPI/Swagger spec instead of scraping DOM
+- [ ] Resolution: endpoint + payload + auth matching instead of locators
+- [ ] Executor: httpx/requests instead of Playwright
+- [ ] Assertions: status codes, response schemas, headers
+- [ ] Mock catalog: add an "API" row — an OpenAPI stub target so the harness
+      measures a non-DOM shape (same story→skeleton→evidence loop)
+
+**Estimated sessions:** 1-2
+
+### FC-03 — .NET Testing
+
+**Priority:** Future
+**Status:** `[ ]` Not started
+**Impact:** Differentiates beyond Python; enterprise .NET shops can generate
+tests in their own stack.
+
+**What transfers:** the same outer loop (story → conditions → skeleton →
+evidence → eval).
+
+**What's new:**
+- [ ] LLM emits C# xUnit/NUnit instead of Python pytest (language seam)
+- [ ] Runner: `dotnet test` instead of pytest
+- [ ] Evidence: parse trx output or a .NET-side tracker bridge
+- [ ] The story→skeleton→evidence loop stays identical
+
+**Estimated sessions:** 2-3
+
+### FC-04 — Dashboard Testing
+
+**Priority:** Future
+**Status:** `[ ]` Not started
+**Impact:** BI/data teams (Power BI, Tableau, Grafana) — dashboards are web UIs,
+so most of the existing browser pipeline applies directly.
+
+**What's new:**
+- [ ] Assertion semantics for chart/data values (not just element visibility)
+- [ ] Optional API/data-layer verification behind the dashboard
+- [ ] Mock catalog: dashboard row (Grafana-style static dashboards with data tables)
+
+**Estimated sessions:** 1-2
+
+---
+
 ## Future Considerations
 
 Items worth investigating but not on the active roadmap.
@@ -674,6 +740,9 @@ limits, is cacheable, and safe for retries.
 | 17 | URL-Based Assertions (B-021) | Feature | `[x]` Shipped 2026-07-20 | 1 |
 | 18 | State-Dep. Scraping (B-022) | Bug | `[x]` Shipped 2026-07-20 | 1 |
 | 19 | Cart Modal (B-023) | Bug | `[x]` Shipped 2026-07-20 | 0.5 |
+| 20 | FC-02 API Testing | Expansion | `[ ]` Not started | 1-2 |
+| 21 | FC-03 .NET Testing | Expansion | `[ ]` Not started | 2-3 |
+| 22 | FC-04 Dashboard Testing | Expansion | `[ ]` Not started | 1-2 |
 
 **Total estimated sessions:** 32-46 (+2 for AI-012, +3 for Phase 1 doc-mode)
 
@@ -715,6 +784,7 @@ Update this section after each session:
 | 2026-08-01 | B-028 fixed — journey discovery picks the cart link for product/add-to-cart | **B-028 FIXED + follow-ups shipped**: root cause = discovery passed lowercase actions to the scorer (all action bonuses silently disabled) + hidden-modal penalty crushing real candidates + hallucinated POM locators + non-fillable quantity inputs + missing `tag` field. Fixes: action normalisation, visibility-aware modal penalty, product/category/dismiss context hints, DOM-existence index in generated POMs (`_ELEMENTS`), hidden-element exclusion, `_is_fillable` aligned with IntentMatcher, FILL-quantity stepper fallback, batch fallback searches all scraped pages, EvidenceTracker fast-fail (148s→0.0s) + proactive overlay dismissal, LLM `max_tokens` cap (4096), per-test pytest `--timeout=120`, structural assembler (`src/test_structure_assembler.py`, t-string shells — module-level leaks structurally impossible). Journey reaches product pages + non-empty cart; verify_production execution completes ~65-75s (was 600s timeout), 12/13 gates. Full eval live-regenerate 53.7% → **65.7%**; static 100% unchanged. 2030 tests, ruff/mypy clean. |
 | 2026-08-01 | AI-034 Test Table (Phases 1-3) + B-027 re-fix + UI fixes | **AI-034 COMPLETE**: `src/test_table.py` (TestRow/TestTable/CRUD, TestTableExpander with fallback + cap, table_to_conditions), Test Table editors in Streamlit + CLI, LTP "Tests" column, one skeleton per confirmed row. 33 tests + UAT (8 rows → 8 functions 1:1, real LLM). **B-027 re-fixed properly**: naive comma-splitter had been reverted; added SPLITTING RULES prompt, numbered-wrap routing, JSON retry-once + salvage gate, sentence-boundary fallback. Verified: 1 story → 3 conditions. **UI fixes**: `PIPELINE_TEST_TIMEOUT` 300s→600s; run-tests errors now inline in Run section (`run_tests_error`) instead of off-screen `pipeline_error`. **B-028 logged** (journey discovery picks cart link for product/add-to-cart — evidence in BACKLOG). **LangGraph dormant state documented** (graph not wired into user flow; CI skips its tests). AI-039 rename deferred to launch readiness. 1998 tests, static eval 100%. |
 | 2026-08-02 | CLI walkthrough + zero-pass pipeline | Shipped `scripts/cli_walkthrough.py` (all CLI buttons: NAV 41/41, FULL 59/59), fixed CLI Load-Existing crash (PermissionError), CLI POM/Consent invisible toggles, and 5 mechanical pipeline bugs (POM selector drop → runtime skips, OneTrust consent pollution, URL trailing-slash, FILL container-div match, evidence-tracker post-navigation hang) + verify_production timeout message/salvage. verify_production 20/26 → 22/26 gates; 2042 tests pass. **Open: the semantic layer** — dialog-role scoping, assertion-state polarity, heading-role asserts, upstream skeleton phrasing for load-conditions ("assert home page title" is an LLM invention; golden key expects `to_have_url`), LLM re-ranking w/ T-strings + bounded retries. Do NOT add site-specific lists — match playwright.dev's ARIA-role vocabulary. See `docs/sessions/2026-08-02_cli_walkthrough_and_zero_pass_pipeline_fixes.md`. |
+| 2026-08-03 | Export gate + product expansion tier | Shipped B-031/B-032 (runnable, validated exports — `scripts/export_gate.py`, golden fixture, stub guard, decorator/assert-family stripping, `run_results.sqlite` copy), offline-suite guard test, eval-static CI job, sanitizer `fixtures/` skip. Added **Tier 6 — Product Expansion** (FC-02 API, FC-03 .NET, FC-04 dashboard testing) so the product has an explicit beyond-browser direction; kanban now shows them as planned backlog. See `docs/sessions/2026-08-03_export_gate_and_broken_exports.md`. |
 
 1. **One item per session** — per AGENTS.md §10
 2. **Design session first** for B-014 and any item marked "Needs design session"
