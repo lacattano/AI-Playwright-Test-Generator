@@ -693,6 +693,70 @@ so most of the existing browser pipeline applies directly.
 
 ---
 
+## Tier 7 — User Documentation & Onboarding
+
+**Priority:** Deferred — gated on the paid/free tier split (Phase 6 SaaS / Phase 8 GTM).
+Documentation and option-explanation copy differ between a free consumer tier and a paid
+product tier; writing them twice is waste, so this is deliberately **not started** until the
+tier split is decided (product naming is already on hold pending launch readiness — decision
+2026-08-01, backlog AI-039). Recorded now so the gap stays visible on the kanban.
+
+The product ships with **zero user-facing documentation**: a tester installs, opens the
+Streamlit app or CLI, and has to discover what POM mode, consent handling, OCR backends,
+workspaces, RAG stats, self-healing, and the export-time fields mean — and which options
+exist in which interface.
+
+### UD-01 — "Getting the most out of the product" user guide
+
+**Priority:** Deferred
+**Status:** `[ ]` Not started
+**Impact:** First-run success + retention — the consumer audience the B-036 work targets
+installs once and either "gets it" or churns.
+
+**Deliverables:**
+- [ ] A single user-facing guide (docs/ or website): the full pipeline walk
+      (story → plan → generate → run → self-heal → export), every option and what it does,
+      troubleshooting (LLM empty response, unresolved placeholders, strict-mode, evidence)
+- [ ] Option reference table: setting | Streamlit | CLI | default | what it does
+- [ ] First-run quickstart for the two personas (UI user / CLI user)
+
+**Scope notes (from the 2026-08-04 consumer-config session):**
+- Settings now persist via `~/.ai-test-gen/settings.enc` — the guide must explain what
+  persists and how to reset (the UI prune button only clears learned patterns; there is no
+  user-facing "reset all settings" lever yet).
+- **Streamlit and the CLI genuinely diverge** — inventory during UD:
+  - Both: provider/model, consent mode, POM mode, Jira project key
+  - Streamlit-only UI: OCR backend selector, workspace field, RAG Store stats + prune
+  - CLI-only: `rag_ingest.py --stats / --prune-learned` (power user), interactive repair
+  - The CLI cannot currently SET workspace/OCR from the menu (it reads them from the
+    store) — either add menu items or document the asymmetry explicitly
+- The **model textbox does not auto-update when the provider changes** (Streamlit
+  widget-state quirk seen in the Tier-2 walkthrough) — UI-polish item for UD-02.
+
+### UD-02 — Option-explanation UI revisit
+
+**Priority:** Deferred (same gate)
+**Status:** `[ ]` Not started
+**Impact:** Every widget should answer "what does this do, and what happens if I change it?"
+without a docs visit.
+
+**Deliverables:**
+- [ ] Audit every sidebar/main widget: does it have `help=` text? is the label
+      self-explanatory? (RAG Store stats, workspace, OCR backend, consent modes, POM
+      toggle, export mode, Jira key…)
+- [ ] Research how comparable tools explain options — Streamlit apps, Playwright/pytest
+      tooling, Cypress Studio, Katalon, Testim, Mabl; also LLM-tool UIs. Collect patterns:
+      progressive disclosure, inline examples, hover docs vs expanders, "what changed"
+      toasts, inline preview of effect
+- [ ] Decide one consistent pattern per interface (Streamlit `help=` / CLI inline help /
+      `--help` text) and apply it everywhere
+- [ ] Surface the Streamlit-vs-CLI difference deliberately (some options are UI-only by
+      design — OCR backend is a document-mode setting with no CLI user flow today)
+
+**Estimated sessions:** UD-01: 2-3 · UD-02: 1-2
+
+---
+
 ## Future Considerations
 
 Items worth investigating but not on the active roadmap.
@@ -743,6 +807,7 @@ limits, is cacheable, and safe for retries.
 | 20 | FC-02 API Testing | Expansion | `[ ]` Not started | 1-2 |
 | 21 | FC-03 .NET Testing | Expansion | `[ ]` Not started | 2-3 |
 | 22 | FC-04 Dashboard Testing | Expansion | `[ ]` Not started | 1-2 |
+| 23 | UD-01/02 User Docs & UI Onboarding | Product | `[ ]` Deferred — gated on paid/free tier split (Phase 6/8); see Tier 7 | 3-5 |
 
 **Total estimated sessions:** 32-46 (+2 for AI-012, +3 for Phase 1 doc-mode)
 
