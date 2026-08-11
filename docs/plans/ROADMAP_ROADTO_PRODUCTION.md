@@ -358,6 +358,34 @@ appear on multiple pages. The only precise page-identity check is `expect(page).
 
 ---
 
+### 17. AI-043 — Output Artifact Quality Gate (heatmap / Gantt / graph accuracy)
+
+**Priority:** Medium (quality) — visual artifacts are customer-facing evidence; a wrong heatmap or Gantt reads as "the tool doesn't know what it's doing" even when tests passed (demo-blocker class)
+**Status:** `[ ]` Not started — roadmap (2026-08-09)
+**Impact:** Evidence/report artifacts (heatmap overlays, Gantt timelines, run-history graphs) must be truthful to the run that produced them. This is a deterministic rendering problem — a validation harness catches these bugs at zero training cost.
+
+**Problem:** Unit tests validate chart *builders* (fixture sidecar → figure structure), but nothing validates the rendered artifact against source truth. Known failure classes (from production reports):
+- Heatmap boxes misaligned with the page — `loc.bounding_box()` returns CSS pixels, Playwright screenshots are image pixels, and **no device-pixel-ratio scaling** is applied between them (DPR>1 displays misalign by construction)
+- Heatmap aggregates boxes from *all* steps but picks **one** background screenshot per URL — if the page changed between steps, earlier steps' boxes sit on the wrong frame
+- Gantt "all over the place" — hardcoded/zero `duration_s` (B-044 class), unsorted starts, axis not covering entries
+- Unreadable charts at report size (overlapping labels, empty/NaN series)
+
+**What's needed:**
+- [x] **Layer 1 — deterministic invariants** (offline, CI): `src/artifact_validation.py` — heatmap points are % of document in [0,100] (catches legacy pixel coords); payloads parseable/finite; aggregated counts consistent with statuses; Gantt durations finite & >= 0 (NaN/negative collapses timeline); generic Plotly NaN/None/empty-series checks
+- [x] **Layer 2 — golden fixtures**: `fixtures/report_golden/` — good sidecar set (must pass) + legacy-pixel + NaN-duration sets (must fail)
+- [ ] **Layer 3 — Playwright alignment** (full mode, mock sites): render the heatmap HTML over the live page at the recorded viewport and assert each overlay box's center hits the element it claims (`locator.bounding_box()` vs overlay div)
+- [x] Regression tests: legacy pixel-valued `viewport_pct`; NaN/negative Gantt duration (DPR investigated 2026-08-09: % coords cancel device-pixel-ratio — NOT a bug; legacy pixel coords are)
+- [x] Wire into gates: `scripts/validate_report_artifacts.py` CLI (exit 1 on errors) + 3 checks in `scripts/smoke.py` Gate 0
+- [x] Follow-up fix (2026-08-09, same session): `evidence_tracker._get_element_metadata` now converts viewport-relative bbox to document coordinates (adds scrollX/scrollY) and clamps % to [0,100] — no more negative y / off-page markers. Regression tests: document-relative math, negative-y clamp, scroll-probe failure fallback.
+
+**Verified 2026-08-09:** validator run over all 51 evidence dirs under `generated_tests/` — 5 dirs flagged with negative-y coords (2 errors each), the rest clean; golden fixtures green in smoke + full suite (2399 passed).
+
+**Related:** Phase 5 eval harness (item 9), B-044 (real durations), AI-020 (annotated screenshots), AI-016–022 (evidence chain)
+
+**Estimated sessions:** 2-3
+
+---
+
 ## Tier 4 — ML Engineering Roadmap
 
 ### 10. Phase 2 — Full Self-Healing Reflection Loops
@@ -558,6 +586,57 @@ appear on multiple pages. The only precise page-identity check is `expect(page).
 - [ ] 30+ unit tests (`test_test_table.py`)
 
 **Estimated sessions:** 3-4
+
+---
+
+### 16. AI-042 — Cross-Site Flow Memory (learn navigation/method patterns from passing evidence)
+
+**Priority:** Medium (portfolio + commercial) — faster multi-site onboarding (Phase 8 GTM)
+**Status:** `[ ]` Not started — roadmap (2026-08-09)
+**Impact:** "First passing test on an unseen site" is the value moment for a new customer — locator memory can't transfer (verified: only 3% of learned locator pairs overlap across sites), but navigation/method *shape* does (login→browse→cart→checkout is near-identical across e-commerce sites).
+
+**Problem:** Every test run regenerates flows from scratch. Locators are correctly site-locked (B-047), but method sequences and navigation transitions are thrown away even though they generalize.
+
+**Evidence available today:**
+- Sidecars record a `url` per step — the full navigation trace (login → /inventory.html → cart → checkout)
+- `_step_to_pattern` deliberately skips `navigate` steps, so flows are learned nowhere
+- `src/url_resolver.py` alias groups (cart→cart/basket, login→login/signin/auth) are the only cross-site navigation knowledge — hardcoded, not learned
+
+**What's needed:**
+- [ ] Flow learner: read passing sidecars → transition tuples (from_url_pattern, action, description, to_url_pattern), aggregated across sites with hit counts + site diversity
+- [ ] Site-agnostic generalization via URL *patterns* (normalized route keywords) — never raw URLs (privacy: one-way hashes only, per AI-035 §4)
+- [ ] Consumption hook: (a) Phase 1 skeleton guidance, (b) Phase 2 GOTO / URL-assertion resolution confidence, or (c) both
+- [ ] Guardrails: learn only from ≥2-site-verified patterns, hit-count threshold, site-specific evidence wins over cross-site flow
+- [ ] Evaluation: hold out one eval dataset as an "unseen site" and measure first-pass accuracy vs today
+- [ ] Unit tests (`tests/test_flow_memory.py`)
+
+**Related:** AI-035 (self-learning RAG), B-047 (site scoping), AI-040/041 (training corpus — flow-shaped skeleton rows may overlap; check before building a separate runtime path)
+
+**Estimated sessions:** 2-3
+
+---
+
+### 18. AI-044 — Visual Grounding: vision-based element location
+
+**Priority:** Low-Medium (portfolio + long-term differentiator) — "sees the page like a tester does"
+**Status:** `[ ]` Not started — roadmap (2026-08-09)
+**Dependency:** AI-041 training pipeline proven (model swap + baseline loop working); AI-043 landed (validation to measure it against)
+**Impact:** Solve the resolver's hardest class — elements with no stable id / data-test / accessible name (styling-driven selectors, visual labels) — by locating them from the screenshot. Side effect: heatmaps become trivially correct (boxes come from detected elements, not recorded metadata).
+
+**Problem:** Element location today is DOM/attribute-based (`src/placeholder_scorers.py`). Elements without stable attributes are the known weak spot (AGENTS.md §13: ASSERT placeholders resolving to wrong elements). Screenshots are already captured for every step but never used for location.
+
+**Data (already being collected for free):** every test run writes sidecars with (screenshot, element metadata, bbox) triples — 581 sidecars today, growing every run. Filter to fully-passing steps → verified (image, region, label) pairs with zero labelling effort. This is the training set.
+
+**Design sketch:**
+- [ ] Dataset extractor: passing evidence steps → (screenshot, bbox, description) pairs; dedupe, viewport/scroll normalization, versioned in `training_data/`
+- [ ] Model: lightweight vision-language (Qwen-VL family — reuses AI-041's Studio path) or detection head (DETR/YOLO-style) on existing embedding infra
+- [ ] Integration: vision grounding score into `compute_element_score` (vision as one more signal, not a replacement) or candidate pre-filter
+- [ ] Evaluation: extend the eval harness with a localization metric (bbox IoU vs golden element position) — needs AI-043's Playwright-alignment layer to measure truth
+- [ ] Guardrails: latency budget at resolve time (vision is slow); privacy unchanged (screenshots stay local, AI-035 §4); fall back to DOM scoring when vision is unavailable/uncertain
+
+**Related:** AI-043 (heatmap accuracy + measurement layer), AI-041 (training infra), AI-035 (RAG), AGENTS.md §13 (ASSERT resolution gap)
+
+**Estimated sessions:** 5-8
 
 ---
 
@@ -808,8 +887,11 @@ limits, is cacheable, and safe for retries.
 | 21 | FC-03 .NET Testing | Expansion | `[ ]` Not started | 2-3 |
 | 22 | FC-04 Dashboard Testing | Expansion | `[ ]` Not started | 1-2 |
 | 23 | UD-01/02 User Docs & UI Onboarding | Product | `[ ]` Deferred — gated on paid/free tier split (Phase 6/8); see Tier 7 | 3-5 |
+| 24 | AI-042 Cross-Site Flow Memory | ML | `[ ]` Not started — roadmap 2026-08-09. Learn site-agnostic navigation/method flows from passing evidence (sidecar URL traces); generalize across sites for faster first-pass tests on unseen sites (GTM). See Tier 4 §16. | 2-3 |
+| 25 | AI-043 Output Artifact Quality Gate | Infra | `[ ]` Not started — roadmap 2026-08-09. Validate heatmap/Gantt/graph accuracy: invariants + golden fixtures + Playwright overlay alignment. Deterministic, no training. See Tier 3 §17. | 2-3 |
+| 26 | AI-044 Visual Grounding (vision element location) | ML | `[ ]` Not started — roadmap 2026-08-09. Train vision model on passing-sidecar (screenshot, bbox, description) pairs; vision score into resolver; solves attribute-less element location; makes heatmaps trivially correct. Depends on AI-041 + AI-043. See Tier 4 §18. | 5-8 |
 
-**Total estimated sessions:** 32-46 (+2 for AI-012, +3 for Phase 1 doc-mode)
+**Total estimated sessions:** 41-60 (+2 for AI-012, +3 for Phase 1 doc-mode, +2-3 for AI-042, +2-3 for AI-043, +5-8 for AI-044)
 
 ---
 
@@ -826,6 +908,7 @@ Update this section after each session:
 | 2026-06-09 | AI-010 Phases 1-3 | Shipped evidence-aware POM builder (Phase 1), POM mode in PlaceholderOrchestrator (Phase 2), pipeline configuration wiring (Phase 3). 26 unit tests. `pom_mode` flows: TestOrchestrator → PlaceholderOrchestrator → PageObjectBuilder → PipelineArtifactSet → package_manifest.json. 1107 tests pass. |
 | 2026-06-09 | AI-010 Phase 4 (UI Toggle) | Shipped Streamlit sidebar toggle (`ui_renderers.py`), `pom_mode` in `st.session_state` → `streamlit_app.py` → `ui_pipeline.run_pipeline()`. CLI: `pom_mode` in `Session` dataclass, "POM Mode" menu item in `cli/main.py` with colored feedback, forwarded via `cli/pipeline_runner.py`. ruff clean, mypy clean, 1107 tests pass. Phase 5 (export stripping) remains. |
 | 2026-06-10 | AI-010 Phase 5 (Export Stripping) | Shipped `_strip_evidence_from_pom()` in `src/code_postprocessor.py`. Converts evidence-aware POM to clean POM: strips EvidenceTracker import, replaces tracker.click/fill/navigate/assert_visible/get_text/select with page.locator equivalents, adds expect() imports for assertions. 18 unit tests in `tests/test_code_postprocessor_pom_export.py`. ruff clean, mypy clean, 1125 passed, 1 skipped. AI-010 feature complete. |
+| 2026-08-10/11 | B-047 residuals + AI-041 (failed) + AI-043 L1/2 | Golden +20 site-scoped (site_hash seeded/stored/enforced + output_fields round-trip fix); RAG learning lock fixed via parent-side sidecar sweep; AI-043 Layer 1+2 shipped (artifact validation module + CLI + golden fixtures + smoke wiring, caught real negative-y bug fixed in evidence_tracker); baseline comparison tool; **AI-041 closed FAILED** (27B trained loss 0.08, GGUF export physically impossible — 16-bit merge walls; see field guide); AI-042/043/044 roadmap items added. 2402 tests pass. |
 | 2026-06-08 | Phase 4 Export (core) | Shipped `ExportMode` enum, `ExportService.export()`, `strip_evidence_from_test_code()`, `strip_evidence_from_pom()`. 28 unit tests in `tests/test_phase4_export.py`. 1068 tests pass. **TODO:** Streamlit export panel + CLI export menu option. |
 | 2026-06-11 | AI-026 Step 7 (Backwards Compatibility) | Verified Step 7 complete: `find_existing_packages()`, `_reconstruct_manifest()`, `load_package_manifest(reconstruct=True)` all implemented in `src/pipeline_artifact_manager.py`. 22 unit tests cover legacy package loading. `scrape_manifest.json` includes all required metadata fields. Old package formats load gracefully. 1137 tests pass. |
 | 2026-06-12 | AI-011 Run History Chart | Shipped complete feature: `src/run_history_chart.py` (10 tests, Plotly stacked bar + pass-rate line), `src/run_history_cli.py` (19 tests, ASCII tables), Streamlit Run History tab in EvidenceViewer with scope selector + flaky test panel + run comparison, CLI `render_run_history_summary()` wired into `cli/pipeline_runner.py` (2 call sites), `run_results/` copy added to `src/export_service.py` exports. 29 new tests, 1166 total pass, zero regressions. |
