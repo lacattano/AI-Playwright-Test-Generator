@@ -361,7 +361,7 @@ appear on multiple pages. The only precise page-identity check is `expect(page).
 ### 17. AI-043 — Output Artifact Quality Gate (heatmap / Gantt / graph accuracy)
 
 **Priority:** Medium (quality) — visual artifacts are customer-facing evidence; a wrong heatmap or Gantt reads as "the tool doesn't know what it's doing" even when tests passed (demo-blocker class)
-**Status:** `[ ]` Not started — roadmap (2026-08-09)
+**Status:** `[x]` Complete — Layers 1-3 shipped 2026-08-11 (Layer 3 landed 2026-08-11)
 **Impact:** Evidence/report artifacts (heatmap overlays, Gantt timelines, run-history graphs) must be truthful to the run that produced them. This is a deterministic rendering problem — a validation harness catches these bugs at zero training cost.
 
 **Problem:** Unit tests validate chart *builders* (fixture sidecar → figure structure), but nothing validates the rendered artifact against source truth. Known failure classes (from production reports):
@@ -373,7 +373,7 @@ appear on multiple pages. The only precise page-identity check is `expect(page).
 **What's needed:**
 - [x] **Layer 1 — deterministic invariants** (offline, CI): `src/artifact_validation.py` — heatmap points are % of document in [0,100] (catches legacy pixel coords); payloads parseable/finite; aggregated counts consistent with statuses; Gantt durations finite & >= 0 (NaN/negative collapses timeline); generic Plotly NaN/None/empty-series checks
 - [x] **Layer 2 — golden fixtures**: `fixtures/report_golden/` — good sidecar set (must pass) + legacy-pixel + NaN-duration sets (must fail)
-- [ ] **Layer 3 — Playwright alignment** (full mode, mock sites): render the heatmap HTML over the live page at the recorded viewport and assert each overlay box's center hits the element it claims (`locator.bounding_box()` vs overlay div)
+- [x] **Layer 3 — Playwright alignment** (full mode, mock sites): render the heatmap HTML over the live page at the recorded viewport and assert each overlay box's center hits the element it claims — shipped 2026-08-11. `src/heatmap_alignment.py`: `extract_points` → `point_to_document_px` (live doc size) → one locator-scoped evaluate (`elementFromPoint` + ancestor/descendant containment — no DOM handles cross the protocol boundary; this Playwright build serialises node returns as strings). Catches stale locators + wrong-frame drift. Live tests: 3/3 against the ecommerce mock (real chromium, real tracker metadata math); CLI gate via `scripts/validate_report_artifacts.py --full`. 18 offline + 3 live tests.
 - [x] Regression tests: legacy pixel-valued `viewport_pct`; NaN/negative Gantt duration (DPR investigated 2026-08-09: % coords cancel device-pixel-ratio — NOT a bug; legacy pixel coords are)
 - [x] Wire into gates: `scripts/validate_report_artifacts.py` CLI (exit 1 on errors) + 3 checks in `scripts/smoke.py` Gate 0
 - [x] Follow-up fix (2026-08-09, same session): `evidence_tracker._get_element_metadata` now converts viewport-relative bbox to document coordinates (adds scrollX/scrollY) and clamps % to [0,100] — no more negative y / off-page markers. Regression tests: document-relative math, negative-y clamp, scroll-probe failure fallback.
@@ -455,6 +455,8 @@ appear on multiple pages. The only precise page-identity check is `expect(page).
 
 **Priority:** High (promoted from Low)  
 **Status:** `[x]` Complete 2026-07-31 — BUT **dormant**: not wired into the user-facing pipeline (see BACKLOG "LangGraph Pipeline — Dormant" note 2026-08-01). `run_pipeline_via_graph()` is called only by eval `--use-graph` + unit tests; the UI/CLI/uat use the linear `run_pipeline()`. `langgraph` is a core dependency — graph tests run locally and in CI (71/71 pass).
+
+**Scope note (2026-08-11 audit):** "Complete" covers the LangGraph core + eval + doc-mode (phases 1a-1j). The model-agnostic half of the original scope — per-agent model configuration, cloud providers (Anthropic/Google), per-agent selection UI, named config profiles, fallback chain — was **never built** (verified: no `AGENT_*` envs in code; `src/llm_providers/` ships only Ollama/LMStudio/OpenAI). Items marked **NOT BUILT** below are the open (dormant) scope.
 **Impact:** Formal multi-agent pattern for portfolio + enables Phase 3 RAG + complete model flexibility
 
 **Research verified (2026-06-14):**
@@ -464,9 +466,9 @@ appear on multiple pages. The only precise page-identity check is `expect(page).
 - Use standard Gemma 4 26B-A4B MoE for all agents
 
 **Proposed agent roles with verified models:**
-- [ ] **Ingestion Agent:** Gemma 4 26B-A4B MoE (3.8B active params, ~14.4GB at 4-bit) — parses PDFs, Word docs, Confluence pages
-- [ ] **QA Director:** Gemma 4 31B Dense (~17.5GB at 4-bit) — routes test criteria to correct agent
-- [ ] **Script Synthesizer:** Gemma 4 26B-A4B MoE (~14.4GB at 4-bit) — generates Playwright test code
+- [x] **Ingestion Agent:** Gemma 4 26B-A4B MoE (3.8B active params, ~14.4GB at 4-bit) — role shipped (doc-mode, PyMuPDF); model = documented recommendation
+- [x] **QA Director:** Gemma 4 31B Dense (~17.5GB at 4-bit) — role shipped; model = documented recommendation
+- [x] **Script Synthesizer:** Gemma 4 26B-A4B MoE (~14.4GB at 4-bit) — role shipped; model = documented recommendation
 
 **Hardware requirements:** ~32GB RAM minimum for dual-model deployment at 4-bit quantization
 
@@ -552,15 +554,15 @@ appear on multiple pages. The only precise page-identity check is `expect(page).
    - Users can override any agent with their preferred model/provider
 
 **What's needed:**
-- [ ] Formal LangGraph state management
-- [ ] Define agent roles: Ingestion, QA Director, Script Synthesizer
-- [ ] Refactor orchestrator to use agent framework
-- [ ] Implement per-agent model configuration
-- [ ] Add cloud providers (Anthropic, Google)
-- [ ] Configuration UI for model selection
-- [ ] Fallback mechanism implementation
-- [ ] Requires Phase 5 eval harness to verify no regression
-- [ ] Write spec: `docs/specs/FEATURE_SPEC_phase1_multi_agent.md`
+- [x] Formal LangGraph state management — `src/agents/pipeline_graph.py` (71/71 tests)
+- [x] Define agent roles: Ingestion, QA Director, Script Synthesizer — `src/agents/{ingestion,director,synthesizer,validator,planner}.py`
+- [x] Refactor orchestrator to use agent framework — `run_pipeline_via_graph()` in `src/orchestrator.py`
+- [ ] Implement per-agent model configuration — **NOT BUILT** (no `AGENT_*` envs; dormant scope)
+- [ ] Add cloud providers (Anthropic, Google) — **NOT BUILT** (only Ollama/LMStudio/OpenAI)
+- [ ] Configuration UI for model selection — **NOT BUILT**
+- [ ] Fallback mechanism implementation — **NOT BUILT**
+- [x] Requires Phase 5 eval harness to verify no regression — eval `--use-graph` path
+- [x] Write spec: `docs/specs/FEATURE_SPEC_phase1_multi_agent.md`
 
 **Estimated sessions:** 4-5 (increased from 3-4 due to cloud provider integration)
 
@@ -582,8 +584,8 @@ appear on multiple pages. The only precise page-identity check is `expect(page).
 - [x] Phase 2: Living Test Plan enhancement — "Tests" column + editors in Streamlit AND CLI
 - [R] Phase 3: Pre-flight resolution reporting — removed from spec 2026-07-31 (resolver already surfaces failures via `pytest.skip()` + evidence)
 - [x] Phase 4: Skeleton generation — one function per test row (via `table_to_conditions()`)
-- [ ] Test Table editor UI in Streamlit (mirrors Living Test Plan pattern)
-- [ ] 30+ unit tests (`test_test_table.py`)
+- [x] Test Table editor UI in Streamlit (mirrors Living Test Plan pattern) — shipped 2026-08-01 (🧪 Test Table expander, data_editor + Save/Confirm-All)
+- [x] 30+ unit tests (`test_test_table.py`) — 33 tests shipped with Phase 1
 
 **Estimated sessions:** 3-4
 
@@ -592,7 +594,7 @@ appear on multiple pages. The only precise page-identity check is `expect(page).
 ### 16. AI-042 — Cross-Site Flow Memory (learn navigation/method patterns from passing evidence)
 
 **Priority:** Medium (portfolio + commercial) — faster multi-site onboarding (Phase 8 GTM)
-**Status:** `[ ]` Not started — roadmap (2026-08-09)
+**Status:** `[x]` Complete — learner + store + consumption shipped 2026-08-12; eval holdout measured 2026-08-12 (0 → 3/4 non-home URL asserts resolvable with holdout integrity)
 **Impact:** "First passing test on an unseen site" is the value moment for a new customer — locator memory can't transfer (verified: only 3% of learned locator pairs overlap across sites), but navigation/method *shape* does (login→browse→cart→checkout is near-identical across e-commerce sites).
 
 **Problem:** Every test run regenerates flows from scratch. Locators are correctly site-locked (B-047), but method sequences and navigation transitions are thrown away even though they generalize.
@@ -603,14 +605,20 @@ appear on multiple pages. The only precise page-identity check is `expect(page).
 - `src/url_resolver.py` alias groups (cart→cart/basket, login→login/signin/auth) are the only cross-site navigation knowledge — hardcoded, not learned
 
 **What's needed:**
-- [ ] Flow learner: read passing sidecars → transition tuples (from_url_pattern, action, description, to_url_pattern), aggregated across sites with hit counts + site diversity
-- [ ] Site-agnostic generalization via URL *patterns* (normalized route keywords) — never raw URLs (privacy: one-way hashes only, per AI-035 §4)
-- [ ] Consumption hook: (a) Phase 1 skeleton guidance, (b) Phase 2 GOTO / URL-assertion resolution confidence, or (c) both
-- [ ] Guardrails: learn only from ≥2-site-verified patterns, hit-count threshold, site-specific evidence wins over cross-site flow
-- [ ] Evaluation: hold out one eval dataset as an "unseen site" and measure first-pass accuracy vs today
-- [ ] Unit tests (`tests/test_flow_memory.py`)
+- [x] Flow learner: read passing sidecars → transition tuples (from_url_pattern, action, description, to_url_pattern), aggregated across sites with hit counts + site diversity — `src/flow_memory.py` (`flow_transitions`, `FlowMemoryStore`, shipped 2026-08-12). Seeded from 908 real sidecars → 64 patterns, 6 sites, 4 cross-site (home→cart, home→checkout)
+- [x] Site-agnostic generalization via URL *patterns* (normalized route keywords) — never raw URLs (privacy: one-way hashes only, per AI-035 §4) — `normalize_route()`; site identity = sha256(host[:port]); routes are generic vocabulary
+- [x] Consumption hook: (b) Phase 2 GOTO / URL-assertion resolution confidence — `flow_resolved_url()` wired as step 2.5 in the orchestrator's GOTO/URL chain + page-state ASSERT fallback (after UrlResolver + resolve_url, before heuristic — site evidence always wins). (a) skeleton guidance not built (prompt changes are regeneration-sensitive — deferred, see notes)
+- [x] Guardrails: learn only from passing steps, `min_sites` cross-site filter (2 = ≥2-site-verified only), hit-count ranking, site-specific evidence wins over cross-site flow
+- [x] Evaluation: hold out one eval dataset as an "unseen site" and measure first-pass accuracy vs today — **shipped 2026-08-12**: `scripts/eval/flow_holdout_eval.py`. Result: **0 → 3/4 non-home URL asserts resolvable with holdout integrity** (target site's own evidence excluded) after adding route canonicalization (`normalize_route` aliases: view_cart/basket→cart, inventory→products, signin/auth→login — the learned analog of url_resolver's hardcoded groups; exact whole-route match only, step pages stay distinct). automationexercise products/cart asserts resolve via saucedemo + mock flows only; ecommerce cart assert is strict cross-site (2 sites). Baseline 0 (eval_resolver treats ASSERT as element matching). Corpus caveats: 3 home-target goldens are seed-fallback scope (not flow memory); ecommerce checkout excluded (flows co-verified on the target mock port 8781); no GOTO goldens exist yet — a GOTO-flavored dataset would exercise the hook directly
+- [x] Unit tests (`tests/test_flow_memory.py`) — 34 tests incl. orchestrator consumption integration (GOTO resolves via cross-site flow when site resolution fails; disabled store is a no-op)
 
 **Related:** AI-035 (self-learning RAG), B-047 (site scoping), AI-040/041 (training corpus — flow-shaped skeleton rows may overlap; check before building a separate runtime path)
+
+**Follow-ups (optional — not required for the item's completion):**
+- [x] **AI-042-F1 — GOTO-flavored golden dataset** — shipped 2026-08-12: `docs/rag_corpus/playwright/04-navigation.md` (curated navigation reference — the corpus previously had one navigation section in 3 files; Playwright's own docs treat navigation as first-class: `page.goto` is core, actionability explicitly exempts navigation), `scripts/eval/dataset/eval-008_goto_navigation.json` (banking mock, 2 GOTO goldens + URL asserts with `expected_page` from-contexts), flow path wired into `eval_resolver._resolve_placeholder` (GOTO/URL/url_assertion resolve via `flow_resolved_url` using `expected_page` as from-context; 3 hermetic tests `tests/test_eval_goto_flow.py`), stateful scraped pages for the banking mock (login-wall index + session-gated pages) — banking_mock resolver accuracy 9/26 → **13/26 (50%)**, overall resolver 32.1% → 35.8%, holdout eval 3/7 → 6/11, static harness gate unchanged at 97.9% (eval-008 is 0/0 without a capture)
+- [ ] **AI-042-F2 — Flow stats + prune in Streamlit**: parity with the RAG "Learned Patterns" section — show flow store stats (patterns / sites / cross-site) + a prune button (`FlowMemoryStore.clear()` + `stats()` already exist)
+- [ ] **AI-042-F3 — Cross-test flow chaining**: the learner reads transitions within one sidecar; 904/908 real sidecars contain a single navigation, so the dominant suite-level shape (login test → products test → cart test) is not yet learned. Extension: chain transitions across a package's passing tests (test N's terminal URL as test N+1's entry context) — the bigger surface
+- [ ] **AI-042-F4 — Skeleton guidance (roadmap option (a))**: deliberately deferred — prompt changes are regeneration-sensitive (AI-037 lesson); revisit only if GOTO first-pass accuracy demands it
 
 **Estimated sessions:** 2-3
 
@@ -875,7 +883,7 @@ limits, is cacheable, and safe for retries.
 | 10 | Phase 5 Eval Harness | Infra | `[x]` Complete (Dynamic regeneration enabled) | 2-3 |
 | 11 | Phase 2 Self-Healing | ML | `[x]` Complete 2026-07-27 | 2-3 |
 | 12 | Phase 3 RAG | ML | `[x]` Shipped 2026-07-21 — extended 2026-08-03/04: B-036 consumer config (always-on RAG, bundled golden pack auto-seed, evidence auto-learn, settings store + export-time fields) + AI-035 self-healing write-back — the learning loop is fully closed (generate → execute → fail → self-heal → learn → next generation resolves better). | 3-4 |
-| 13 | Phase 1 Multi-Agent | ML | `[x]` Complete 2026-07-31. All phases (1a-1j): LangGraph core + eval + doc-mode pipeline (PDF/Markdown parsing, change deltas, persona routing, impact mapping, OCR backends, eval dataset). +88 tests, 1900 total. | 3-4 + 3 (doc-mode) |
+| 13 | Phase 1 Multi-Agent | ML | `[x]` Core + doc-mode complete 2026-07-31. All phases (1a-1j): LangGraph core + eval + doc-mode pipeline (PDF/Markdown parsing, change deltas, persona routing, impact mapping, OCR backends, eval dataset). +88 tests, 1900 total. **Per-agent cloud config (Anthropic/Google providers, per-agent model UI, fallback chain) NOT BUILT — dormant scope.** | 3-4 + 3 (doc-mode) |
 | 13b | AI-034 Test Table & Pre-flight | ML | `[x]` Complete 2026-08-01. Phases 1-3: `src/test_table.py` (expansion + CRUD), Test Table editors in Streamlit + CLI, LTP "Tests" column, one skeleton per confirmed row. Pre-flight removed from spec (resolver + evidence covers it). UAT: 8 rows → 8 functions 1:1. | 2-3 |
 | 14 | Phase 6 SaaS Deployment | Commercial | `[ ]` Research complete 2026-07-31. MVP: Streamlit Cloud Pro ($55/mo) + streamlit-authenticator. Auth: Google OAuth. Multi-tenant: already built via AI-029 workspace isolation. | 1-2 |
 | 15 | Phase 7 CI/CD Integration | Commercial | `[ ]` Research complete 2026-07-31. MVP: custom GitHub Action in our own repo. Three modes: generate-only, generate-and-run, run-existing. JUnit XML already supported. PR comment with pass/fail summary. | 1 |
@@ -887,8 +895,8 @@ limits, is cacheable, and safe for retries.
 | 21 | FC-03 .NET Testing | Expansion | `[ ]` Not started | 2-3 |
 | 22 | FC-04 Dashboard Testing | Expansion | `[ ]` Not started | 1-2 |
 | 23 | UD-01/02 User Docs & UI Onboarding | Product | `[ ]` Deferred — gated on paid/free tier split (Phase 6/8); see Tier 7 | 3-5 |
-| 24 | AI-042 Cross-Site Flow Memory | ML | `[ ]` Not started — roadmap 2026-08-09. Learn site-agnostic navigation/method flows from passing evidence (sidecar URL traces); generalize across sites for faster first-pass tests on unseen sites (GTM). See Tier 4 §16. | 2-3 |
-| 25 | AI-043 Output Artifact Quality Gate | Infra | `[ ]` Not started — roadmap 2026-08-09. Validate heatmap/Gantt/graph accuracy: invariants + golden fixtures + Playwright overlay alignment. Deterministic, no training. See Tier 3 §17. | 2-3 |
+| 24 | AI-042 Cross-Site Flow Memory | ML | `[x]` Complete 2026-08-12. `src/flow_memory.py` (learner + store + GOTO/URL-assert consumption), route canonicalization (view_cart/basket→cart, inventory→products — learned analog of url_resolver aliases), 34 tests, seeded from 908 real sidecars → 89 patterns / 6 sites / 5 cross-site. Eval holdout: 0 → 3/4 non-home URL asserts resolvable with target-site evidence excluded. See Tier 4 §16. | 2-3 |
+| 25 | AI-043 Output Artifact Quality Gate | Infra | `[x]` Complete 2026-08-11. L1/2 + gates shipped 2026-08-10/11 (`src/artifact_validation.py`, golden fixtures, smoke Gate 0; caught + fixed negative-y bbox bug). L3 shipped 2026-08-11 (`src/heatmap_alignment.py` — live overlay↔page alignment, `validate_report_artifacts.py --full`, 21 tests incl. live mock). See Tier 3 §17. | 2-3 |
 | 26 | AI-044 Visual Grounding (vision element location) | ML | `[ ]` Not started — roadmap 2026-08-09. Train vision model on passing-sidecar (screenshot, bbox, description) pairs; vision score into resolver; solves attribute-less element location; makes heatmaps trivially correct. Depends on AI-041 + AI-043. See Tier 4 §18. | 5-8 |
 
 **Total estimated sessions:** 41-60 (+2 for AI-012, +3 for Phase 1 doc-mode, +2-3 for AI-042, +2-3 for AI-043, +5-8 for AI-044)
@@ -901,6 +909,9 @@ Update this section after each session:
 
 | Date | Item Completed | Notes |
 |------|---------------|-------|
+| 2026-08-12 | AI-042 session 2 — eval holdout + route canonicalization | **Measurement**: `scripts/eval/flow_holdout_eval.py` — for each eval dataset's URL-assert/GOTO goldens, checks flow resolution with holdout integrity (target site hash excluded) + from-context reachability (site's known URLs contain the flow's from-route). Finding: without canonicalization 0/7 holdout+context; cross-site flows only transfer when sites share route vocabulary (saucedemo cart.html vs automationexercise view_cart). **Fix**: `_ROUTE_ALIASES` in `normalize_route` (view_cart/basket/shopping_cart→cart, inventory→products, signin/sign-in/auth→login; exact whole-route match only — checkout-step-one/-two stay distinct). Re-seed 908 sidecars → 89 patterns / 5 cross-site (was 64/4). **Result: 0 → 3/4 non-home URL asserts holdout-resolvable with context** (automationexercise products/cart via saucedemo+mock flows; ecommerce cart strict cross-site 2 sites). End-to-end verified: `flow_resolved_url` returns view_cart/products for automationexercise from non-target flows only. Caveats documented: 3 home targets = seed-fallback scope; ecommerce checkout co-verified on target port; no GOTO goldens in datasets. 34 tests, ruff/mypy clean. |
+| 2026-08-12 | AI-042 session 1 — flow learner + store + consumption | **Shipped**: `src/flow_memory.py` — `normalize_route` (URL→route keyword, no raw URLs), `flow_transitions` (passed-only, same-page dropped, per-step site identity), `FlowMemoryStore` (JSON, atomic, dedup + site diversity + `min_sites` guardrail), `flow_resolved_url` consumption hook wired as step 2.5 in the GOTO/URL chain + page-state ASSERT fallback (site evidence always wins — runs after UrlResolver/resolve_url). Wired learning into `generated_tests/conftest.py` teardown + `synthesize_stories.py` sweep; `FLOW_MEMORY_ENABLED=0` hermetic gate in tests. 33 tests; seeded from 908 real sidecars → 64 patterns/6 sites/4 cross-site (home→cart, home→checkout). ruff/mypy clean; 125 orchestrator tests + 171 URL-assertion tests pass. **Next**: eval holdout measurement (unseen-site first-pass vs today). |
+| 2026-08-11 | AI-043 Layer 3 (heatmap alignment) + doc audit | **Layer 3 shipped**: `src/heatmap_alignment.py` — render suite heatmap, open live page, assert every overlay box centre hits its claimed element (`elementFromPoint` + containment in one locator-scoped evaluate; live doc-size mapping catches wrong-frame drift, `missing/hidden` catches stale locators). `scripts/validate_report_artifacts.py --full` browser gate; 18 offline unit tests + 3 live tests (real chromium vs ecommerce mock, real tracker metadata math). Verified: ruff/mypy clean, smoke 38/38, no-live-network guard passes. **Doc audit**: AI-034 stale boxes ticked; Phase 1 checklist split done vs NOT BUILT (dormant scope); BACKLOG Phase 4 Export TODO cleared. |
 | 2026-06-03 | Plan created | Cross-referenced against actual project state |
 | 2026-06-04 | B-014 ASSERT resolution | Shipped intent-aware scoring: _assert_action_penalty, _assert_message_bonus, _is_message_like_assertion. SuccessAssertStrategy requires BOTH success+message keywords. 42 tests, 1043 pass. |
 | 2026-06-04 | B-015 Journey element selection | Shipped unified scoring: _discover_selector() delegates to PlaceholderScorer.compute_element_score(). Eliminated dual-ranking pipeline. 60 journey tests, 1015 total pass. |
