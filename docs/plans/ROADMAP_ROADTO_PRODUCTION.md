@@ -628,8 +628,8 @@ appear on multiple pages. The only precise page-identity check is `expect(page).
 ### 18. AI-044 — Visual Grounding: vision-based element location
 
 **Priority:** Low-Medium (portfolio + long-term differentiator) — "sees the page like a tester does"
-**Status:** `[ ]` Not started — roadmap (2026-08-09)
-**Dependency:** AI-041 training pipeline proven (model swap + baseline loop working); AI-043 landed (validation to measure it against)
+**Status:** `[ ]` **DEFERRED 2026-08-13** — off-the-shelf open-source GUI-grounding models already solve the core task (verified via tavily 2026-08-13: **UGround** — 10M elements / 1.3M screenshots ~95% web, LLaVA-based, SOTA on ScreenSpot; **OS-Atlas** — 2.23M cross-platform; **UI-TARS**; **GUI-Actor** — attention-map, no coords). Training our own model only pays off as a fine-tune-on-own-sidecars LoRA *after* the eval measures a domain gap. Slim option **AI-044-B** (off-the-shelf integration, ~1-2 sessions) keeps the product value without the training pipeline. Revisit at launch readiness or when a fine-tune is wanted.
+**Dependency:** ~~AI-041 training pipeline proven~~ — AI-041 closed FAILED 2026-08-11 (GGUF export physically impossible on 64GB Windows). AI-043 landed (validation to measure it against). Vision inference is CPU-only on this box (ROCm wall, see AI-038).
 **Impact:** Solve the resolver's hardest class — elements with no stable id / data-test / accessible name (styling-driven selectors, visual labels) — by locating them from the screenshot. Side effect: heatmaps become trivially correct (boxes come from detected elements, not recorded metadata).
 
 **Problem:** Element location today is DOM/attribute-based (`src/placeholder_scorers.py`). Elements without stable attributes are the known weak spot (AGENTS.md §13: ASSERT placeholders resolving to wrong elements). Screenshots are already captured for every step but never used for location.
@@ -677,7 +677,8 @@ Items required to sell the tool publicly (marketplace, SaaS, CI/CD integration).
 ### 14. Phase 7 — CI/CD Integration
 
 **Priority:** Medium-High (deferred)  
-**Status:** `[ ]` Not started  
+**Status:** `[~]` In progress — spec drafted + fully grilled 2026-08-13; **7a core shipped** (headless driver, fake LLM, ignore list, workspace fix); 7a tail (Docker action + self-test workflow) + 7b/7c pending
+**Spec:** `docs/specs/FEATURE_SPEC_phase7_ci_cd_integration.md` (no open questions remaining)  
 **Impact:** Enterprise adoption driver — teams don't run tools manually; they want automated test generation in their CI pipeline.  
 
 **What's needed:**
@@ -707,6 +708,7 @@ Items required to sell the tool publicly (marketplace, SaaS, CI/CD integration).
 - [ ] Interactive sandbox — try the tool in-browser without installing (limited to 3 test generations)
 - [ ] AWS Marketplace listing — Docker image / AMI, usage-based billing integration
 - [ ] PyPI package — `pip install ai-playwright-generator` (CLI only, free tier)
+- [ ] GitHub Marketplace Action listing — thin public `ai-test-generator` repo (`action.yml` + entrypoint + Dockerfile) whose image installs the product from PyPI; requires public repo + semver release tags. Owner reference (`<owner>/ai-test-generator@v1`) is fixed by the AI-039 rename — same launch batch. Spec: `docs/specs/FEATURE_SPEC_phase7_ci_cd_integration.md` §Q4.
 - [ ] Case study / testimonial — one real user story to establish credibility
 
 **Dependencies:** Phase 6 (SaaS) for sandbox; AI-028 (Export) for demo footage of evidence viewer.
@@ -898,7 +900,7 @@ limits, is cacheable, and safe for retries.
 | 23 | UD-01/02 User Docs & UI Onboarding | Product | `[ ]` Deferred — gated on paid/free tier split (Phase 6/8); see Tier 7 | 3-5 |
 | 24 | AI-042 Cross-Site Flow Memory | ML | `[x]` Complete 2026-08-12. `src/flow_memory.py` (learner + store + GOTO/URL-assert consumption), route canonicalization (view_cart/basket→cart, inventory→products — learned analog of url_resolver aliases), 34 tests, seeded from 908 real sidecars → 89 patterns / 6 sites / 5 cross-site. Eval holdout: 0 → 3/4 non-home URL asserts resolvable with target-site evidence excluded. See Tier 4 §16. | 2-3 |
 | 25 | AI-043 Output Artifact Quality Gate | Infra | `[x]` Complete 2026-08-11. L1/2 + gates shipped 2026-08-10/11 (`src/artifact_validation.py`, golden fixtures, smoke Gate 0; caught + fixed negative-y bbox bug). L3 shipped 2026-08-11 (`src/heatmap_alignment.py` — live overlay↔page alignment, `validate_report_artifacts.py --full`, 21 tests incl. live mock). See Tier 3 §17. | 2-3 |
-| 26 | AI-044 Visual Grounding (vision element location) | ML | `[ ]` Not started — roadmap 2026-08-09. Train vision model on passing-sidecar (screenshot, bbox, description) pairs; vision score into resolver; solves attribute-less element location; makes heatmaps trivially correct. Depends on AI-041 + AI-043. See Tier 4 §18. | 5-8 |
+| 26 | AI-044 Visual Grounding (vision element location) | ML | `[ ]` **DEFERRED 2026-08-13** — off-the-shelf GUI-grounding models (UGround / OS-Atlas / UI-TARS) cover the core task; AI-041 dependency dead (training failed). Slim AI-044-B (off-the-shelf integration, 1-2 sessions) if wanted. See Tier 4 §18. | 5-8 |
 
 **Total estimated sessions:** 41-60 (+2 for AI-012, +3 for Phase 1 doc-mode, +2-3 for AI-042, +2-3 for AI-043, +5-8 for AI-044)
 
@@ -910,6 +912,7 @@ Update this section after each session:
 
 | Date | Item Completed | Notes |
 |------|---------------|-------|
+| 2026-08-13 | Phase 7 CI/CD — spec + 7a core | Spec drafted + fully grilled (referee default, verified adaptation post-failure, `.ai-test-ignore.yml` with required-reason anti-rug rule, danger-zone Option C, two-stage Action repo, trigger scope, GitLab parity in 7c). **7a core shipped**: `scripts/ci_generate.py` headless driver (exit codes 0/1/2, `--json`, workspace isolation, danger-zone allow-list), `scripts/fake_llm.py` (OpenAI-compatible, per-condition fragment routing — the production path generates one skeleton per condition), `src/ci_ignore.py`, 28 tests (incl. 1 slow-lane E2E: fake LLM + ecommerce mock → 8 tests, workspace-isolated). **Found + fixed**: `PipelineArtifactWriter` hardcoded `generated_tests` default silently bypassed AI-029 workspaces — now storage-aware. Gates: 2510 passed, smoke 38/38, eval static 97.9%. 7a tail (Docker action + self-test workflow), 7b, 7c pending. **AI-044 deferred** (off-the-shelf GUI grounding covers the task; AI-041 failed). |
 | 2026-08-12 | Testing hardening | Coverage gate in CI (`--cov-fail-under=65`, measured 67%). ASSERT flow-fallback tests uncovered a real gap: the sequential B-021 page-state ASSERT branch never used flow memory (URL asserts couldn't be flow-rescued in the real pipeline) — fixed by mirroring the flow fallback into the sequential path. Script-hook static guards for verify_production/synthesize_stories chaining. Learning-loop E2E added to BACKLOG (non-roadmap). 4 new tests (2482 total). |
 | 2026-08-12 | AI-042-F3 + F2 (follow-up series complete) | **F3 cross-test flow chaining**: `chain_suite_transitions()` + `learn_suite_flows()` (adjacent passing tests → GOTO transitions; same-site guard, home/no-movement dropped, pre-B-033 value fallback); `FlowPattern.source` split; wired into all run paths (synthesize_stories, `PipelineRunService.run_saved_test` UI+CLI, verify_production). 24 new chains (89→113 patterns, cross-site 5→8); holdout strict cross-site 1/11→2/11. **F2 sidebar**: `SidebarConfig._render_flow_memory()` — Flow Memory stats (patterns/sites/cross-site/suite chains) + two-step prune (`FlowMemoryStore.clear()`), parity with RAG Learned Patterns; `format_flow_stats_summary` helper + 2 stubbed-UI tests. 17 new tests (2477 total). F4 remains deferred (prompt regeneration sensitivity). |
 | 2026-08-12 | AI-042 session 2 — eval holdout + route canonicalization | **Measurement**: `scripts/eval/flow_holdout_eval.py` — for each eval dataset's URL-assert/GOTO goldens, checks flow resolution with holdout integrity (target site hash excluded) + from-context reachability (site's known URLs contain the flow's from-route). Finding: without canonicalization 0/7 holdout+context; cross-site flows only transfer when sites share route vocabulary (saucedemo cart.html vs automationexercise view_cart). **Fix**: `_ROUTE_ALIASES` in `normalize_route` (view_cart/basket/shopping_cart→cart, inventory→products, signin/sign-in/auth→login; exact whole-route match only — checkout-step-one/-two stay distinct). Re-seed 908 sidecars → 89 patterns / 5 cross-site (was 64/4). **Result: 0 → 3/4 non-home URL asserts holdout-resolvable with context** (automationexercise products/cart via saucedemo+mock flows; ecommerce cart strict cross-site 2 sites). End-to-end verified: `flow_resolved_url` returns view_cart/products for automationexercise from non-target flows only. Caveats documented: 3 home targets = seed-fallback scope; ecommerce checkout co-verified on target port; no GOTO goldens in datasets. 34 tests, ruff/mypy clean. |
