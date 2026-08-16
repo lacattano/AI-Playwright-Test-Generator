@@ -653,24 +653,55 @@ appear on multiple pages. The only precise page-identity check is `expect(page).
 
 Items required to sell the tool publicly (marketplace, SaaS, CI/CD integration).
 
-### 13. Phase 6 — SaaS Deployment
+### 12c. Upgrade Path — Regenerate Old Packages After Pipeline Changes
+
+**Priority:** Medium (commercial trust)  
+**Status:** `[ ]` Not started — added 2026-08-17 (research log: `docs/plans/RESEARCH_SAAS_AND_LAUNCH.md`)  
+**Impact:** A customer generates a suite on v1, upgrades TanCat to v2, and the pipeline's prompts/resolver changed. Can they regenerate without breaking? This is the "upgrading the tool doesn't orphan my tests" story — commercial trust for any licensed deployment that lives longer than a month.  
+
+**What transfers (already built):** `PipelineArtifactWriter` save/load, `package_manifest.json` (AI-026), `scrape_manifest.json` full metadata (base_url, page_requirements, journeys, records), `_reconstruct_manifest()` for legacy packages, export stripping, eval harness (to measure regenerated-vs-original drift), self-healing + RAG/flow memory (regenerated locators can re-learn).
+
+**What's new (spec needed):**
+- [ ] Package versioning — manifest records the TanCat version + pipeline fingerprint that generated it
+- [ ] "Regenerate from saved package" flow — reuse the original story/requirements/scrape metadata, run the current pipeline, diff old vs new generated tests
+- [ ] Drift report — which tests changed, which locators moved, which now pass/fail differently (eval-harness-style comparison, not just byte diff)
+- [ ] Safety default — regenerate to a *new* package, never overwrite; customer merges/runs the new one
+- [ ] Migration policy doc — what counts as a breaking pipeline change vs safe regeneration
+
+**Dependencies:** AI-026 (persist, shipped), Phase 5 eval harness (shipped, for drift measurement), AI-039 naming (manifest format should not change again post-rename — do the manifest versioning *after* the rename decision).
+
+**Estimated sessions:** 2-3
+
+---
+
+### 13. Phase 6 — SaaS Deployment (TWO-PART PLAN — restructured 2026-08-17)
 
 **Priority:** Medium (deferred)  
-**Status:** `[ ]` Not started  
-**Impact:** Enables hosted SaaS offering — users sign up, log in, and generate tests in their browser without installing anything.  
+**Status:** `[ ]` Not started — **Part 1 is the commercialisable v1**; Part 2 deferred until Part 1 is selling  
+**Spec prerequisite:** `docs/specs/FEATURE_SPEC_phase6_saas.md` — **NOT WRITTEN; must exist before Part 1 build starts.** Covers the BYO-LLM architecture (decision D1 in `docs/plans/RESEARCH_SAAS_AND_LAUNCH.md`), free-tier limit (open research item §5 — the old "3 generations" number is arbitrary), license key design, and credential policy.  
+**Impact:** Part 1 = per-company deployment (customer's infra, customer's LLM, customer's data) — the enterprise-attractive v1. Part 2 = true multi-tenant SaaS (strangers share our platform) — much bigger isolation build, not required for launch.  
 
-**What's needed:**
-- [ ] Production Streamlit deployment (gunicorn + Nginx, or Streamlit Community Cloud Pro)
-- [ ] User auth (OAuth: GitHub/Google, or email/password via Supabase Auth)
-- [ ] Per-user isolation — each user gets their own workspace (AI-029 provides the foundation)
-- [ ] S3-backed storage for generated tests + evidence (AI-029 `StorageBackend` Protocol enables this)
-- [ ] Usage metering — track test runs, LLM tokens consumed, storage per user
-- [ ] License key management — generate, validate, expire keys; tier enforcement (Free vs Pro)
-- [ ] HTTPS, session affinity, rate limiting
+**Part 1 — Per-company deployment ("deploy TanCat, bring your own LLM") — the v1:**
+- [ ] Production Docker deployment shape: one shared Streamlit server per company + headless CI driver in one image; team members share one workspace (AI-029 workspace = per-deployment)
+- [ ] BYO-LLM onboarding — "check my LLM" first-run health probe (endpoint reachable, key valid, model capable); documented minimum-model recommendations
+- [ ] Per-deployment user auth (team members log in to the company's own instance — streamlit-authenticator or equivalent; NOT our central identity)
+- [ ] License key: offline-validated signed token (ed25519, expiry, grace period on failure) — works with no internet to our servers; authorises the deployment
+- [ ] Usage visibility per deployment (runs, storage, LLM tokens — for the customer's own ops + license tier enforcement)
+- [ ] Credential policy shipped: CI reads secrets from the CI platform's secret store via env vars; interactive runs keep credentials in session state; never persisted where avoidable (Fernet `settings.enc` only if unavoidable). **Rule: role scoping is per-story/per-test by declaration — TanCat never selects credentials automatically and never learns which login unlocks which element** (flow memory / RAG learn navigation shape + locators only — no raw URLs, no credential text, no role-to-element maps)
+- [ ] No-egress verification: audit all runtime outbound HTTP; "no data leaves your deployment" must be literally true (LLM calls go to the customer's endpoint and nothing else)
+- [ ] Private-IP/SSRF blocklist on scraped URLs (cheap guard + documented warning for internal-network use)
 
-**Dependencies:** AI-029 (Workspace & Storage) — the storage abstraction and workspace concept are prerequisites.
+**Part 2 — True multi-tenant SaaS (DEFERRED — not required for commercial viability):**
+- [ ] User auth on OUR platform (OAuth: GitHub/Google, or email/password via Supabase Auth)
+- [ ] Per-tenant isolation of the three learned stores (today global per machine): `run_results.sqlite`, RAG vector store (Milvus Lite), flow memory — per-tenant DB files + vector collections + flow stores, or per-tenant containers; process isolation of `get_storage()`/RAG/flow singletons (needs a per-tenant context object — sketch in spec)
+- [ ] S3-backed per-tenant storage (AI-029 `StorageBackend` Protocol enables this)
+- [ ] Usage metering + free-tier rate limiting on our infra (cost is ~0 — customer's LLM does the work — so the limit is perceived-value, not cost)
+- [ ] Full SSRF guard + ToS/legal scope for shared-platform data handling
+- [ ] Sandbox ("N free generations in-browser") — a rate-limited instance of Part 2; size decided by spec research (comparable tools' trial limits)
 
-**Estimated sessions:** 3-4
+**Dependencies:** AI-029 (shipped — storage/workspace foundation). Part 2 additionally: license model decided, Part 1 shipping, multi-tenant isolation design researched (`RESEARCH_SAAS_AND_LAUNCH.md` §3).
+
+**Estimated sessions:** Part 1: 3-4 · Part 2: 8-12 (isolation dominates)
 
 ---
 
@@ -679,6 +710,7 @@ Items required to sell the tool publicly (marketplace, SaaS, CI/CD integration).
 **Priority:** Medium-High (deferred)  
 **Status:** `[x]` **Complete 2026-08-15** — spec grilled (no open questions) + **7a core + 7a tail + 7b + 7c shipped** (headless driver, fake LLM, ignore list, workspace fix, Docker action + hermetic self-test, generate-and-run, cache, PR comment, slash-commands, verified adaptation, **GitLab parity**). See `docs/ci.md`.
 **Spec:** `docs/specs/FEATURE_SPEC_phase7_ci_cd_integration.md` (no open questions remaining)  
+**Prerequisite (recorded 2026-08-17):** AI-039 rename must be decided **before first PyPI publish / first launch batch** — the Action owner reference (`<owner>/ai-test-generator@v1`), the PyPI package name, and the repo name are one coordinated decision; publishing under the old name locks it in.  
 **Impact:** Enterprise adoption driver — teams don't run tools manually; they want automated test generation in their CI pipeline.  
 
 **What's needed:**
@@ -888,8 +920,9 @@ limits, is cacheable, and safe for retries.
 | 12 | Phase 3 RAG | ML | `[x]` Shipped 2026-07-21 — extended 2026-08-03/04: B-036 consumer config (always-on RAG, bundled golden pack auto-seed, evidence auto-learn, settings store + export-time fields) + AI-035 self-healing write-back — the learning loop is fully closed (generate → execute → fail → self-heal → learn → next generation resolves better). | 3-4 |
 | 13 | Phase 1 Multi-Agent | ML | `[x]` Core + doc-mode complete 2026-07-31. All phases (1a-1j): LangGraph core + eval + doc-mode pipeline (PDF/Markdown parsing, change deltas, persona routing, impact mapping, OCR backends, eval dataset). +88 tests, 1900 total. **Per-agent cloud config (Anthropic/Google providers, per-agent model UI, fallback chain) NOT BUILT — dormant scope.** | 3-4 + 3 (doc-mode) |
 | 13b | AI-034 Test Table & Pre-flight | ML | `[x]` Complete 2026-08-01. Phases 1-3: `src/test_table.py` (expansion + CRUD), Test Table editors in Streamlit + CLI, LTP "Tests" column, one skeleton per confirmed row. Pre-flight removed from spec (resolver + evidence covers it). UAT: 8 rows → 8 functions 1:1. | 2-3 |
-| 14 | Phase 6 SaaS Deployment | Commercial | `[ ]` Research complete 2026-07-31. MVP: Streamlit Cloud Pro ($55/mo) + streamlit-authenticator. Auth: Google OAuth. Multi-tenant: already built via AI-029 workspace isolation. | 1-2 |
+| 14 | Phase 6 SaaS Deployment (TWO-PART — restructured 2026-08-17) | Commercial | `[ ]` Not started. **Part 1 (v1): per-company deployment + BYO-LLM** — customer's infra/LLM/data, team auth on their instance, offline license key, credential policy, no-egress guarantee, SSRF blocklist. **Part 2 (DEFERRED): true multi-tenant SaaS** — our platform, per-tenant isolation of sqlite/RAG/flow stores, S3, sandbox. **Spec prerequisite: `FEATURE_SPEC_phase6_saas.md` (not written).** Research: `RESEARCH_SAAS_AND_LAUNCH.md`. | 3-4 + 8-12 |
 | 15 | Phase 7 CI/CD Integration | Commercial | `[x]` Complete 2026-08-15 (7a + 7b + 7c, one milestone). GitHub Action: headless driver (`scripts/ci_generate.py` + fake-LLM/mock hermetic self-test), three modes (generate-only / generate-and-run / run-existing), idempotent PR comment, `actions/cache` (§7 key), slash-commands (`/adapt` verified adaptation, `/ignore`), verified adaptation engine (locator-only, assertion-gated), Docker action + 39-gate local selftest + GitHub self-test workflow. **GitLab parity (7c)**: `ci/gitlab-ci.template.yml` include template (same three modes + build/compute-key jobs + manual slash job), `ci/platform/gitlab.py` adapter (MR-note comments, PRIVATE-TOKEN, PUT edits, `--latest-command`), protected-environment approvals for the danger zone. See `docs/ci.md`. | 3-4 |
+| 15b | Upgrade Path (regenerate old packages) | Commercial | `[ ]` Not started (added 2026-08-17) | 2-3 |
 | 16 | Phase 8 GTM Assets | Commercial | `[~]` In progress. Research complete 2026-07-31. Domains acquired; holding co + product name set. **P0 repo/PyPI rename deferred until launch readiness (decision 2026-08-01, backlog AI-039).** | 2-3 |
 | 17 | URL-Based Assertions (B-021) | Feature | `[x]` Shipped 2026-07-20 | 1 |
 | 18 | State-Dep. Scraping (B-022) | Bug | `[x]` Shipped 2026-07-20 | 1 |
