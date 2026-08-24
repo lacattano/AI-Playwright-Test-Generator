@@ -749,6 +749,29 @@ Items required to sell the tool publicly (marketplace, SaaS, CI/CD integration).
 
 ---
 
+### 16. Ingestion Improvements (Local) — tiered CPU-first OCR + format scope + quality summary
+
+**Priority:** Medium (commercial trust + domain accuracy) — pre-launch  
+**Status:** `[ ]` Not started — **spec written 2026-08-24 (Draft, §9 open questions to grill before build)**: `docs/specs/FEATURE_SPEC_ingestion_local.md`  
+**Impact:** Ingestion is how a customer's *own domain docs* (insurance policies, underwriting guides) become the RAG store that makes generated tests accurate *for their domain*. It's a **one-time onboarding step** (run once → durable store → reuse; **not** a CI/CD concern — CI restores the pre-built store from cache). It's the **trust differentiator** ("your generator learns *your* domain, on *your* hardware, no egress"). Ingestion quality *is* product quality.  
+
+**What's new (vs AI-045 #4, which shipped the PDF OCR *wiring* + dedup):**
+- [ ] **Tier-1 CPU OCR backend** (RapidOCR / PP-OCRv5-v6 via ONNX Runtime) — scanned pages handled on *any* machine, CPU-only, ~50–80 MB, no network. Closes the "no dedicated GPU = no OCR" gap from AI-045 #4. New optional `[ocr]` extra (default install stays light).
+- [ ] `get_ocr_backend()` selection extended: `auto` (default → tier 0, fall through to tier-1 CPU) / `cpu` / `high-accuracy` (tier-2, PaddleOCR-VL/Surya, opt-in) / `power` (tier-3 VLM, opt-in).
+- [ ] **Ingestion quality summary** in `rag_ingest.py`: per-doc outcome (full/partial/skipped), page OCR-vs-skip counts, dedup new-vs-present (transparency for idempotent re-ingest), actionable re-run suggestion.
+- [ ] **Format scope**: pdf + markdown in; unknown formats rejected loudly ("unsupported: report.docx — supported: pdf, md"). Defined "not yet" set (.docx/.html) documented, not silently skipped.
+- [ ] Tests (hermetic, no GPU/network): tier selection, CPU-OCR routing (real image-only PDF → OCR'd), graceful degradation when the engine is absent, summary output, unknown-format rejection. **Install the `[ocr]` extra locally before validating** (AI-045 #4 lesson: optional extras skip their tests otherwise).
+
+**Tiers (from research, 2026-08-24):** 0 PyMuPDF (text, default) → **1 RapidOCR (CPU, the new default OCR)** → 2 PaddleOCR-VL/Surya (small GPU / high-spec CPU, opt-in) → 3 olmOCR/dots.ocr (dedicated GPU, opt-in; re-pick from Unlimited-OCR).  
+
+**Companion (later, separate product):** TanCat Cloud ingestion — `docs/specs/FEATURE_SPEC_tancat_cloud_ingestion.md` (see Future Considerations). Deliberately **not** part of this build.  
+
+**Dependencies:** AI-045 #4 (PDF OCR wiring + dedup — shipped), Phase 3 RAG (shipped), Phase 6 6b embedding-stamp (shipped).  
+
+**Estimated sessions:** 2–4 (CPU tier is the bulk; summary is cheap high-value; tier-2/3 deferred per spec §9 Q3)
+
+---
+
 ## Tier 6 — Product Expansion (beyond browser E2E)
 
 Long-term directions so the product doesn't become "the web-DOM tester". These
@@ -897,6 +920,27 @@ QUERY would be the correct method for "search tests with complex filters" — av
 limits, is cacheable, and safe for retries.
 
 **Trigger to revisit:** Any feature that adds an HTTP endpoint for querying test/run data.
+
+---
+
+### FC-05 — TanCat Cloud (Ingestion Service) — separate product, post-launch
+
+**Status:** `[ ]` Future consideration — **decision record written 2026-08-24**: `docs/specs/FEATURE_SPEC_tancat_cloud_ingestion.md`  
+**Date noted:** 2026-08-24  
+**Timing:** Post-launch. Launch the air-gapped local product first (the wedge); offer TanCat Cloud to the segment that wants managed convenience.
+
+**Why separate:** Our #1 sales claim is the air-gap / no-egress wedge. A cloud-ingestion path is, by definition, *customer docs leaving their deployment* — putting it inside the local product would contradict the sales story. A separate product keeps the local offer honest and lets the cloud serve a different buyer (trades egress for zero-setup). Mirrors the LLM triad we already have (local / self-hosted / cloud-API-key): ingestion gets the **same axis**.
+
+**The ingestion-backend triad:**
+1. **Local** (the local product) — tiers 0–3, CPU-first, full air-gap. `FEATURE_SPEC_ingestion_local.md` (Tier 5 #16, pre-launch).
+2. **Self-hosted service** — customer deploys it *in their VPC / on-prem*; we run it, their infra, **full air-gap, hardware-agnostic**. = the *self-hosted LLM* analogue. **The strategic center** — kills the hardware-heterogeneity problem *without* breaking the no-egress claim.
+3. **Cloud API (convenience)** — docs go to a cloud OCR/embed provider; **egress — labeled** as such. = the *cloud-API-key LLM* analogue.
+
+**Hard requirements (protect the wedge):** egress explicit + labeled on every path; any cloud-provider call goes through the egress audit (`scripts/audit_egress.py`); reuse the local ingestion code (tiered `OcrBackend` seam), don't fork it; data-minimization + retention policy for the convenience tier (legal/ToS, not just technical).
+
+**Trigger to revisit / spec properly:** after local product launch, when a customer wants managed/hardware-agnostic ingestion. Sequence: option 2 (self-hosted) first, option 3 (cloud-API) after; the tier-3 VLM re-pick (dots.ocr/olmOCR vs Unlimited-OCR) is the natural place to land here since the cloud controls the GPU stack.
+
+**Do NOT** let TanCat Cloud scope leak into the local product's launch scope — local ingestion is tiers 0–1 + summary, nothing cloud-shaped.
 
 ---
 
