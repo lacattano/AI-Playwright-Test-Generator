@@ -749,18 +749,26 @@ Items required to sell the tool publicly (marketplace, SaaS, CI/CD integration).
 
 ---
 
-### 16. Ingestion Improvements (Local) — tiered CPU-first OCR + format scope + quality summary
+### 16. Ingestion Improvements (Local) — tiered CPU-first OCR + format scope + quality summary + cause-differentiated warning
 
 **Priority:** Medium (commercial trust + domain accuracy) — pre-launch  
-**Status:** `[ ]` Not started — **spec written 2026-08-24 (Draft, §9 open questions to grill before build)**: `docs/specs/FEATURE_SPEC_ingestion_local.md`  
+**Status:** `[~]` **In progress — core built 2026-08-25**: tier-1 CPU OCR backend, extended `get_ocr_backend()`, `[ocr]` extra, ingestion quality summary, format scope, **cause-differentiated skip warning** (with install fix), and the **CI regression test** are all built + tested. Remaining: wire per-page OCR into the generation pipeline's direct-doc parse (currently only `rag_ingest.py --pdfs` does per-page OCR), and optional: most-recent sidecar manifest for investigation. Spec: `docs/specs/FEATURE_SPEC_ingestion_local.md`.  
 **Impact:** Ingestion is how a customer's *own domain docs* (insurance policies, underwriting guides) become the RAG store that makes generated tests accurate *for their domain*. It's a **one-time onboarding step** (run once → durable store → reuse; **not** a CI/CD concern — CI restores the pre-built store from cache). It's the **trust differentiator** ("your generator learns *your* domain, on *your* hardware, no egress"). Ingestion quality *is* product quality.  
 
-**What's new (vs AI-045 #4, which shipped the PDF OCR *wiring* + dedup):**
-- [ ] **Tier-1 CPU OCR backend** (RapidOCR / PP-OCRv5-v6 via ONNX Runtime) — scanned pages handled on *any* machine, CPU-only, ~50–80 MB, no network. Closes the "no dedicated GPU = no OCR" gap from AI-045 #4. New optional `[ocr]` extra (default install stays light).
-- [ ] `get_ocr_backend()` selection extended: `auto` (default → tier 0, fall through to tier-1 CPU) / `cpu` / `high-accuracy` (tier-2, PaddleOCR-VL/Surya, opt-in) / `power` (tier-3 VLM, opt-in).
-- [ ] **Ingestion quality summary** in `rag_ingest.py`: per-doc outcome (full/partial/skipped), page OCR-vs-skip counts, dedup new-vs-present (transparency for idempotent re-ingest), actionable re-run suggestion.
-- [ ] **Format scope**: pdf + markdown in; unknown formats rejected loudly ("unsupported: report.docx — supported: pdf, md"). Defined "not yet" set (.docx/.html) documented, not silently skipped.
-- [ ] Tests (hermetic, no GPU/network): tier selection, CPU-OCR routing (real image-only PDF → OCR'd), graceful degradation when the engine is absent, summary output, unknown-format rejection. **Install the `[ocr]` extra locally before validating** (AI-045 #4 lesson: optional extras skip their tests otherwise).
+**Built 2026-08-25 (this session):**
+- [x] **Tier-1 CPU OCR backend** (RapidOCR / PP-OCR via ONNX Runtime) — `RapidOCRBackend` in `src/ocr_backends.py`. Scanned pages handled on *any* machine, CPU-only, ~50–80 MB, no network. New optional `[ocr]` extra (default install stays light). **Fixed a `oocr`→`ocr` typo in pyproject** that would have broken `uv sync --extra ocr`.
+- [x] `get_ocr_backend()` selection extended: `auto` (default, the new `AutoOcrBackend` = tier-0 whole-doc + tier-1 CPU per-page) / `cpu` / `high-accuracy` (tier-2, not built → falls to CPU) / `power` (tier-3 GPU VLM, falls to CPU if no GPU). Legacy `pymupdf`/`unlimited-ocr` names still map correctly.
+- [x] **Ingestion quality summary** in `rag_ingest.py` (`src/rag_bundled.py`): per-doc outcome (full/partial/skipped), page text/OCR/skip counts, dedup new-vs-present, actionable suggestion.
+- [x] **Format scope**: pdf + markdown in; unknown formats rejected loudly. `.txt` deliberately not in v1.
+- [x] **Cause-differentiated skip warning** (the trust signal): a skipped page surfaces as `[WARN] <doc>: N page(s) (cause) -> NOT digested` and **does not hide behind an overall green result**. Causes: `no_engine` (engine not installed → shows the exact install fix `uv sync --extra ocr` + docs link), `ocr_no_text` (OCR ran but couldn't read), `ocr_failed` (OCR hook raised). Serves the use case: a user who uploads a scanned doc *as part of a bigger pack* and gets a positive result must be told the scanned doc was **not** digested + the one-line fix.
+- [x] **CI regression test** (the durable form of tracking): `test_lv_docs_no_pages_skipped_regression` asserts the LV docs ingest with **0 pages skipped** (real backend). If a future change (e.g. a `MIN_PAGE_CHARS` change, a broken OCR hook) causes the LV docs to lose pages, CI goes red *before* the regression ships. Skips if the LV docs aren't present (consistent with `test_all_pdfs`).
+- [x] Tests (hermetic, no GPU/network): tier selection, CPU-OCR routing, graceful degradation, summary output, cause-differentiated warning (no_engine shows install fix, ocr_no_text does not), dedup-key source-in-hash guarantee (two different docs with identical text never dedup), stale-lingering-on-append behavior.
+
+**Remaining (deferred to follow-up):**
+- [ ] Wire per-page OCR into the generation pipeline's direct-doc parse (`pipeline_graph.py _parse_document` currently uses whole-doc `parse_pdf`, not per-page `parse_page`). Reuse the `ingest_pdf` loop. *(Touches a protected file — needs sign-off.)*
+- [ ] Optional: most-recent sidecar manifest in `evidence/` (resolved tier + `ocr_engine_installed` flag + per-doc skipped pages) for bug investigation. The CI test + warning already cover the "find the bug" use case; the sidecar is the queryable investigation aid.
+
+**Known ceiling (documented, not a bug):** page-OCR handles *text* in images, **not** tables/graphs rendered as images (e.g. a chart-as-image). A boundary test whose figure came from an image-graph is **not traceable to that figure** — see the traceability item below.
 
 **Tiers (from research, 2026-08-24):** 0 PyMuPDF (text, default) → **1 RapidOCR (CPU, the new default OCR)** → 2 PaddleOCR-VL/Surya (small GPU / high-spec CPU, opt-in) → 3 olmOCR/dots.ocr (dedicated GPU, opt-in; re-pick from Unlimited-OCR).  
 
@@ -769,6 +777,48 @@ Items required to sell the tool publicly (marketplace, SaaS, CI/CD integration).
 **Dependencies:** AI-045 #4 (PDF OCR wiring + dedup — shipped), Phase 3 RAG (shipped), Phase 6 6b embedding-stamp (shipped).  
 
 **Estimated sessions:** 2–4 (CPU tier is the bulk; summary is cheap high-value; tier-2/3 deferred per spec §9 Q3)
+
+---
+
+### 16b. Test-to-Document Traceability — "where did this figure come from?"  
+
+**Priority:** **High** (core of the trust story) — pre-launch  
+**Status:** `[ ]` **Not started — needs a full spec session** (see session/spec notes at the end of this item). Not a BACKLOG item — it's a roadmap item because it's a first-class product feature, not a bug.  
+**Impact:** This is the **trust question** that is the *reason the product exists*. A user who sees a generated test with a **boundary test for a figure they've never seen** must be able to ask **"where did you get that figure from?"** and have the generator show **the point(s) in the ingested docs that led to that test**. Without this, a user *can't* trust the generator even if it's 99% correct — because the 1% they can't explain is the 1% that makes them nervous.  
+
+**What it means (from the discussion, 2026-08-25):**
+- Add a `source_refs` field to `Criterion`: `[{doc, page, heading, text, kind}]`. `kind` is `"text"` (traceable) or `"unresolved"` (no source found — a **red flag / confidence signal**).
+- **The Ingestion Agent must record *which chunk(s)* each criterion was derived from** — this is the broken link today (criteria are produced from text, but not from *where* in the text).
+- **How the user sees it:** in the UI (hover/expand a criterion → source refs with doc name, page, heading, exact text), in the CLI / exported test (a `# Source: <doc> p<N> "<heading>": "<text>"` comment above the test), and on demand ("where did this figure come from?").
+- **The "no source found" case is itself valuable:** if the Ingestion Agent produces a criterion it can't back in the docs (e.g. the figure was a table/graph-as-image we never extracted), it marks `kind: "unresolved"` → the user sees **"⚠ TC01.05 — no source found in the ingested docs. This figure may be unverified."** That's *more* trustworthy than the user *assuming* it's right.
+
+**Feasibility (honest spectrum — the ceiling is set by what we *extract*):**
+- **Tier 1 — which doc + section** (EASY, high value): link criterion to `source` (filename) + `heading_path`. *Feasibility: high* — `DocChunk` already has `source` + `heading_path`; the Ingestion Agent just records which chunk(s) each criterion came from.
+- **Tier 2 — which page + which text span** (MEDIUM): add a `page` field to chunks + record the exact text. *Feasibility: medium* — chunks are split by heading (can span pages); add a `page` field.
+- **Tier 3 — which *figure/table*** (HARD, the ceiling): show the actual figure/image. *Feasibility: low — known blocker.* A figure that's an **image** (graph, table-as-image) is **not text**; our pipeline extracts *text* (PyMuPDF) and *OCR'd text* (RapidOCR) but **not figure/table *structure***. So a criterion whose figure came from an image-graph is **not traceable to that figure** — only to "⚠ no source found." **Traceability can only point to what we *extracted*.**
+
+**Touches protected files:** `src/agents/ingestion.py` (Ingestion Agent) and `src/agents/pipeline_graph.py` (pipeline) — both in the protected list. Per house rules: **needs a full spec session + sign-off to edit the protected Ingestion Agent files.**  
+
+**Relationship to the OCR/ingestion work (AI-055):** traceability is the *next* trust feature after the OCR + tracking work. It builds on the `source`/`heading_path` data AI-055 already produces. It also has the **same ceiling** (image-graphs not extractable) — the two share that limitation.  
+
+**Dependencies:** AI-055 (source/heading_path on chunks — built), Phase 3 RAG (shipped), the Ingestion Agent (existing, protected).  
+
+**Estimated sessions:** 1 full spec session + 1–2 implementation (Tier 1 first; Tier 2 if needed; Tier 3 is a separate, much harder capability — document as a limitation, don't pretend to solve it).
+
+**Session/spec notes (to go over in the spec session — from the 2026-08-25 discussion):**
+1. *The user's framing (verbatim):* "the user sees a boundary test and it's for a figure they've never seen before, can they look at the data and say 'where did you get that figure from?' and then have the generator show them the point or points in the docs that lead them to creating that test?"
+2. *What exists today:* `DocChunk` has `source` + `heading_path` + `text`. The quality summary (AI-055) tracks per-page outcomes. The generation pipeline goes doc → `raw_document_text` → Ingestion Agent → `Criterion` → test. **The broken link is `Criterion` → which part of the doc** — the Ingestion Agent doesn't record *where* in the text each criterion came from.
+3. *Open questions to grill in the spec session:*
+   - How does the Ingestion Agent *attribute* a criterion to a chunk(s)? (LLM outputs a chunk index? embedding similarity between criterion text and chunk text? a post-hoc match?)
+   - Is `source_refs` per-criterion or per-test (a test has many criteria)?
+   - Where does `page` come from (chunks are split by heading, can span pages)?
+   - How is the "unresolved" case *detected* (no chunk match above a threshold?) and *shown* (⚠ badge in UI, a comment in the export)?
+   - UI surface: hover/expand? a dedicated "sources" panel? click-through to the doc page?
+   - Does traceability need to survive *regeneration* (a regenerated test keeps its source refs, or are they recomputed)?
+   - Privacy: does a source ref expose any PII (a doc section quoted in full)? (The site_hash design (B-047) stores *no* URLs/PII — does source-ref need a similar constraint, e.g. quote only the relevant span, not the whole chunk?)
+   - Tier 3 (figure/table-as-image): confirm it's a *documented limitation* for v1, not a to-do. Is there a *future* capability (figure/table structure extraction) worth noting, or is it out of scope?
+4. *The trust payoff (why this is high-priority):* "no source found" is a **confidence signal** — the generator is *honest* about what it can and can't back. That's the trust differentiator in action.
+5. *The ceiling (be honest):* traceability shows "here's the *text/span*" — it **cannot** show "here's the *figure*" if the figure was a table/graph-as-image we never extracted. If a specific *image-based figure* traceability is needed, that's a **separate, much harder** capability (figure/table structure extraction) we don't have and shouldn't pretend to.
 
 ---
 
