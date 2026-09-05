@@ -570,6 +570,35 @@ appear on multiple pages. The only precise page-identity check is `expect(page).
 
 ---
 
+### 12d. Hybrid — LangGraph-orchestrated linear pipeline (graph as orchestrator)
+
+**Priority:** Medium (architecture — the AI-054 pipeline decision the user is converging on)
+**Status:** 🟡 consolidation complete 2026-09-05 — three scattered items merged here as the ONE canonical home: (1) the BACKLOG LangGraph experiment ("graph wraps linear"), (2) AI-054 §1 (linear-vs-graph decision record), (3) Phase 1's dormant status (the LangGraph core this builds on). Backlog entries reduced to one-line pointers (AGENTS.md §10 split). **Spec NOT written yet** — `docs/specs/FEATURE_SPEC_hybrid_pipeline.md` is the build prerequisite.
+**Decision owner:** user (keep-dormant / hybrid / delete-graph) — still open; this item has the data he needs.
+
+**What today's data changed (2026-09-05, reference stack: mainline 54.9% vs graph 45.1%, −9.8pp):**
+- The historic **88.1%-vs-32.8%** gap was inflated by an eval-harness bug we fixed today: `_regenerate_code_via_graph` never ensured the mock server (linear did) → graph mock datasets scraped a dead `:8781`. Clean gap is **~10pp, not 55pp**.
+- Graph still loses overall but **WINS on the multi-step LV form** (46% vs linear 38%) — exactly the "once the scraper can click through form sections" case the 2026-07-29 verdict predicted.
+- **Demoqa collapse root-caused (1/8 vs linear 7/8): skeleton story-bleed** — the graph Generator reused the prior story's (saucedemo) login vocabulary; the Validator let the off-story steps through. This is THE concrete weakness the hybrid must fix.
+
+**Proposed shape (consolidated — graph as orchestrator around the linear core):**
+```text
+LangGraph: ingest → plan → linear core (single-call skeleton + proven resolver) → graph Validator as integrity gate → repair/retry → export
+                          └─ RAG retriever shared by both paths
+```
+- **Linear skeleton + resolver stay the execution core** — byte-identical discipline, story-pinned (kills the bleed class).
+- **Graph Planner/QA-Director for story intake + condition routing** (its strength).
+- **Graph Validator + integrity check as the post-generation seam on linear output** — catches off-story steps, skipped/weakened assertions (the AI-052/B-030-style repair seam, already exercised by self-healing).
+- LangChain Runnables only if they pay for themselves — the seams are identical with or without (implementation detail).
+
+**Decision gate (unchanged):** adopt graph participation only if it improves reviewed `mean_pass_depth` + integrity-adjusted outcomes without unacceptable latency — otherwise linear stays the product and graph experimental.
+
+**Open questions (merged record):** wrap the whole pipeline vs only validation/repair · durable state/checkpoint data · acceptable model latency · shared resolver without divergent behavior · graph-specific RAG isolation in the A/B harness.
+
+**Estimated sessions:** 3–5 (hybrid design + controlled comparison on the now-fixed harness + the validator seam build).
+
+---
+
 ### 12b. AI-034 — Test Table Generation (COMPLETE 2026-08-01)
 
 **Priority:** High  
@@ -1029,6 +1058,7 @@ Update this section after each session:
 | Date | Item Completed | Notes |
 |------|---------------|-------|
 | 2026-09-05 | **Phase 6 Part 1 shipped — 6c/6d/6e/6h/6i + eval investigation** | 6c team-concurrency RAG write lock; 6d BYO-LLM health check (Streamlit + CLI); 6e offline ed25519 license + tiers + usage meter + free-tier cap; 6h LLM-call cache + latency benchmark; 6i live golden re-validation + multi-site baseline. Eval investigation: root-caused the full-eval accuracy drop to a wiped RAG store (AI-059 lab `shutil.rmtree` vs stale seed marker — B-048) + fixed an eval-harness graph mock-parity bug; controlled fork-vs-mainline eval shows the fork build costs ~6pp resolution (−6.2pp, confirmed; mainline stays the engine); graph-vs-linear clean comparison −9.8pp (linear wins; demoqa graph story-bleed root-caused as skeleton contamination). Housekeeping: AGENTS.md split-of-responsibility rule, launcher stop-bug fixes (llm-benchmarks), 3088→~3095 pytest, static gate 97.9%, egress audit 0 flagged. Session record: `docs/sessions/2026-09-04_phase6_6c_6d_6e_6h_6i_handoff.md`. |
+| 2026-09-05 | **Consolidated the pipeline-direction items → §12d** | Merged the BACKLOG LangGraph experiment + AI-054 §1 + Phase 1's dormant note into one canonical roadmap item (graph-as-orchestrator hybrid) with today's data (clean graph 45.1% vs linear 54.9%; demoqa story-bleed root-caused; historic 32.8% inflated by the fixed mock-ensure bug). BACKLOG entries reduced to one-line pointers (AGENTS.md §10). Spec to be written before build. |
 |------|---------------|-------|
 | 2026-09-02 | **16b Test-to-Document Traceability — all 4 phases shipped** | Implemented the full cited-generation feature per the 2026-09-01 spec (D1–D12). **Phase 1:** `src/source_refs.py` — `SourceRef` data model (doc, page_pdf, page_label, heading, quote, route, dedup_key, kind=cited/unresolved) + `verify_quote()` (normalized substring, no fuzzy — a proven quote or an honest ⚠, never a confident guess) + `normalize_for_quote_match()`. Provenance fields added to `DocChunk` (page/page_label/route) and `RetrievedPattern` (doc_source/doc_page/doc_page_label/doc_route); `add_docs()`/`retrieve()` carry them. `Criterion` gains `source_refs`+`justification`; `PipelineState.from_dict()` deserializes them; `director.py` carries them through (D12). **Phase 2:** `src/pdf_ingest.py` `ingest_pdf_page_aware()` chunks per page (page number no longer destroyed in whole-doc pulping) with per-page OCR fallback; `pipeline_graph._parse_document` (protected, sign-off via spec) feeds the FULL document into `user_story` — removes the `[:500]` ceiling so a page-30 boundary figure reaches the LLM. **Phase 3:** `src/citation_verifier.py` — `attach_paste_citations()` (deterministic: the criterion IS the line) + `verify_document_citations()` (hybrid: LLM proposes quote+page, code verifies → proven / corrected-page / unresolved ⚠; justification only when verified, capped 400; dedup_key pinned on every proven ref). **Phase 4:** `src/citation_surfaces.py` — `render_source_comments()` (test-file `# Source:` blocks, the artifact users keep), `render_citation_cards()` (Living Test Plan), `render_cli_debug()` (per-criterion dump + trust-boundary footer), `render_export_note()`; PRIVACY_MODE = pointer-only (quotes omitted). ⚠ never hidden (D9). 69 new tests (`test_source_refs.py` 32, `test_16b_phase2.py` 6, `test_16b_phase3.py` 15, `test_16b_phase4.py` 16). Gates: smoke PASS, ruff + mypy clean (incl. broader pre-commit mypy on test files), **3029 pytest pass, 0 regressions**. Roadmap 16b → `[x]`, all 4 phase boxes ticked. |
 | 2026-09-01 | **16b Test-to-Document Traceability — full spec session (docs-only)** | Grilled the full design tree (10 questions, all answered). Corrected the roadmap's premise via code audit: criteria come only from pasted/typed requirements; document mode feeds just the first 500 chars of a doc into generation (rest → impact report only); RAG chunk provenance is discarded at retrieval — so 16b is **cited generation**, not a display feature. Locks D1–D12: full vision phased (4 phases; Phase 2 merged with AI-055's remaining per-page OCR wiring so the protected `pipeline_graph.py` is touched once) · hybrid attribution (LLM proposes verbatim quotes, code verifies; no fuzzy fallback in v1, no tuning knob) · trust anchors in the quote (PDF index + printed label; page order never assumed) · per-criterion refs, test-level derived by union · recompute every run + `dedup_key` pinned (stale-lingering chunk versions) · bounded quotes ~240 chars + vague umbrella `PRIVACY_MODE` · capped `justification` ~400 chars with token-overhead tracking (BACKLOG AI-065 watch item) · unresolved advisory, per-figure precision, never blocking · surfaces: test comments → plan cards → CLI debug · Tier 3 figure/table-as-image = documented limitation, future work (figure/table structure extraction, figure-region preview) moved to §16 ingestion improvements. Four refinements from the superseded session notes: threshold policy, click-through deferral (Phase 4 optional, AI-028 tie-in), validation fixtures (LV cover-and-limits 524×218 graphic = canonical ⚠ unresolved fixture; Phase 2 needs a scanned-PDF fixture), PII nuance. **Spec (canonical): `docs/specs/FEATURE_SPEC_test_to_document_traceability.md`; roadmap 16b slimmed to tracker (56→23 lines); SESSION_SPEC marked superseded.** Gates: smoke 39/39, 2960 pytest, ruff + mypy clean. |
